@@ -5,8 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::controls::PatchSettings;
+use crate::music::NoteNaming;
 
-pub const CONFIG_VERSION: u32 = 2;
+pub const CONFIG_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -22,6 +23,7 @@ pub struct Config {
     pub preferred_audio_device: Option<String>,
     pub master_volume: f32,
     pub default_bpm: u16,
+    pub note_naming: NoteNaming,
     pub patch: PatchSettings,
     pub training_midi_low: u8,
     pub training_midi_high: u8,
@@ -36,6 +38,7 @@ impl Default for Config {
             preferred_audio_device: None,
             master_volume: 0.72,
             default_bpm: 100,
+            note_naming: NoteNaming::Letters,
             patch: PatchSettings::default(),
             training_midi_low: 48,
             training_midi_high: 72,
@@ -140,6 +143,7 @@ mod tests {
         let config = Config {
             master_volume: 0.4,
             default_bpm: 144,
+            note_naming: NoteNaming::FixedDo,
             patch,
             ..Config::default()
         };
@@ -177,6 +181,7 @@ theme = "cyberpunk"
         .unwrap();
         let (loaded, warning) = load_from(&path).unwrap();
         assert_eq!(loaded.version, CONFIG_VERSION);
+        assert_eq!(loaded.note_naming, NoteNaming::Letters);
         assert_eq!(loaded.patch, PatchSettings::default());
         assert!(warning.is_none());
         fs::remove_file(path).unwrap();

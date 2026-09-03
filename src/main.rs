@@ -193,6 +193,7 @@ fn run_tui(
         (config.training_midi_low, config.training_midi_high),
     );
     app.patch = config.patch;
+    app.note_naming = config.note_naming;
     app.warning = warning;
     if let Some(message) = &app.warning {
         app.last_feedback = message.clone();
@@ -260,6 +261,7 @@ fn run_tui(
 
     config.master_volume = app.volume;
     config.default_bpm = app.bpm;
+    config.note_naming = app.note_naming;
     config.patch = app.patch;
     if cli.midi_port.is_some() {
         config.preferred_midi_port.clone_from(&cli.midi_port);
@@ -429,6 +431,7 @@ fn smoke_test() -> Result<()> {
     let mut app = App::new(now, 0.72, 100, (48, 72));
     app.midi_name = "smoke-test".into();
     app.audio_name = "offline synth".into();
+    app.note_naming = music::NoteNaming::FixedDo;
     let note = MidiNote::new(60).expect("middle C");
     app.handle_midi(MidiEvent {
         message: MidiMessage::NoteOn {
@@ -462,7 +465,11 @@ fn smoke_test() -> Result<()> {
         rendered.contains("phase") || rendered.contains("PHASE"),
         "TUI smoke frame lacks title"
     );
-    println!("phase smoke test: ok (MIDI parse/state, offline synth, 80x24 TUI render)");
+    anyhow::ensure!(
+        rendered.contains("Do4"),
+        "TUI smoke frame lacks Fixed Do labels"
+    );
+    println!("phase smoke test: ok (MIDI parse/state, offline synth, 80x24 Fixed Do TUI render)");
     Ok(())
 }
 

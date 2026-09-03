@@ -1,6 +1,51 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteNaming {
+    #[default]
+    Letters,
+    FixedDo,
+}
+
+impl NoteNaming {
+    pub const fn toggle(self) -> Self {
+        match self {
+            Self::Letters => Self::FixedDo,
+            Self::FixedDo => Self::Letters,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Letters => "Letters",
+            Self::FixedDo => "Fixed Do",
+        }
+    }
+
+    pub const fn format_pitch_class(self, pitch_class: PitchClass) -> &'static str {
+        const LETTERS: [&str; 12] = [
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+        ];
+        const FIXED_DO: [&str; 12] = [
+            "Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si",
+        ];
+        match self {
+            Self::Letters => LETTERS[pitch_class.value() as usize],
+            Self::FixedDo => FIXED_DO[pitch_class.value() as usize],
+        }
+    }
+
+    pub fn format_note(self, note: MidiNote) -> String {
+        format!(
+            "{}{}",
+            self.format_pitch_class(note.pitch_class()),
+            note.octave()
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct MidiNote(u8);
 
@@ -196,6 +241,15 @@ mod tests {
         assert_eq!(MidiNote::new(60).unwrap().to_string(), "C4");
         assert_eq!(MidiNote::new(69).unwrap().to_string(), "A4");
         assert_eq!(MidiNote::new(0).unwrap().to_string(), "C-1");
+    }
+
+    #[test]
+    fn fixed_do_formats_naturals_accidentals_and_octaves() {
+        let naming = NoteNaming::FixedDo;
+        assert_eq!(naming.format_note(MidiNote::new(60).unwrap()), "Do4");
+        assert_eq!(naming.format_note(MidiNote::new(68).unwrap()), "Sol#4");
+        assert_eq!(naming.format_note(MidiNote::new(71).unwrap()), "Si4");
+        assert_eq!(naming.toggle(), NoteNaming::Letters);
     }
 
     #[test]

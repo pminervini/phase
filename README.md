@@ -56,10 +56,12 @@ Controls:
 | `+` / `-` | Adjust BPM |
 | `m` | Mute |
 | `[` / `]` | Adjust master volume |
+| `n` | Toggle Letters / Fixed Do note names |
 | `?` | Toggle help overlay |
 
 Terminal keys never generate piano notes; musical input comes only from MIDI or demo mode.
 The two-octave keyboard display follows incoming notes in octave steps when they move beyond the visible range.
+Press `n` to switch every TUI pitch label between Letters (`C`, `D`, `E`) and Fixed Do (`Do`, `Re`, `Mi`). The selected naming system is saved in configuration; MIDI note numbers and pitches never change.
 
 The default MPK mini knob bank is mapped directly to the instrument:
 
@@ -98,7 +100,7 @@ The MPK mini Editor can reassign knob CC numbers. `phase` follows CC 1–8 regar
 │ch 1 note on   64  E4 vel  91         ││velocity-sensitive 32-voice piano  │
 │ch 1 note on   60  C4 vel 104         ││                                   │
 └───────────────────────────────────────┘└────────────────────────────────────┘
- q quit  tab mode  space pause  r restart  +/- bpm  m mute  [/] volume  ? help
+ q quit  tab mode  n names  space pause  r reset  +/- bpm  m mute  ? help
 ```
 
 ## Architecture
@@ -122,7 +124,7 @@ The `directories` crate resolves platform paths for the `phase` application. On 
 - configuration: the project configuration directory, `phase/config.toml`
 - practice totals: the project local data directory, `phase/practice.toml`
 
-Configuration stores preferred device substrings, volume, BPM, training range, and theme. Practice data stores total time, accuracy totals, weak-note counts, and best streaks. A malformed file is nonfatal: `phase` uses safe defaults and displays a warning.
+Configuration stores preferred device substrings, volume, BPM, note naming, training range, and theme. Practice data stores total time, accuracy totals, weak-note counts, and best streaks. A malformed file is nonfatal: `phase` uses safe defaults and displays a warning.
 
 ## Troubleshooting
 

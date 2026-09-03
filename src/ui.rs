@@ -1,4 +1,5 @@
 use crate::app::{App, Mode};
+use crate::music::NoteNaming;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -172,14 +173,14 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let (target, detail) = match app.mode {
         Mode::Freeplay => (
             app.chord
-                .map_or_else(|| "—".into(), |chord| chord.to_string()),
+                .map_or_else(|| "—".into(), |chord| format_chord(app, chord)),
             "Play freely · chord detection ignores inversions".into(),
         ),
         Mode::Notes => {
             let target = if app.note_exercise.hide_name {
                 "●".into()
             } else {
-                app.note_exercise.target.to_string()
+                app.note_naming.format_note(app.note_exercise.target)
             };
             let weak = app
                 .note_exercise
@@ -187,8 +188,9 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .iter()
                 .max_by_key(|(_, count)| *count)
                 .and_then(|(&value, &count)| {
-                    crate::music::MidiNote::new(value)
-                        .map(|note| format!(" · weak {note} ×{count}"))
+                    crate::music::MidiNote::new(value).map(|note| {
+                        format!(" · weak {} ×{count}", app.note_naming.format_note(note))
+                    })
                 })
                 .unwrap_or_default();
             (
@@ -204,7 +206,7 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .scale_exercise
                 .recent_mistakes
                 .iter()
-                .map(ToString::to_string)
+                .map(|note| app.note_naming.format_note(*note))
                 .collect::<Vec<_>>()
                 .join(",");
             let completion = app.scale_exercise.last_completion.map_or_else(
@@ -212,10 +214,10 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 |elapsed| format!("{:.1}s", elapsed.as_secs_f32()),
             );
             (
-                app.scale_exercise.expected().to_string(),
+                app.note_naming.format_note(app.scale_exercise.expected()),
                 format!(
                     "{} {} · step {}/{} · {} complete · last {completion} · mistakes {}",
-                    app.scale_exercise.root,
+                    app.note_naming.format_pitch_class(app.scale_exercise.root),
                     app.scale_exercise.kind,
                     app.scale_exercise.index + 1,
                     app.scale_exercise.sequence.len(),
@@ -229,7 +231,7 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
             )
         }
         Mode::Rhythm => (
-            app.rhythm_note.to_string(),
+            app.note_naming.format_note(app.rhythm_note),
             format!(
                 "Play on each beat · perfect ±35 ms · good ±80 ms · window ±180 ms · {}",
                 app.last_feedback
@@ -246,12 +248,27 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(line).block(cyber_block("TARGET")), area);
 }
 
+fn format_chord(app: &App, chord: crate::chord::Chord) -> String {
+    format!(
+        "{} {}",
+        app.note_naming.format_pitch_class(chord.root),
+        chord.quality
+    )
+}
+
 fn render_keyboard(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let inner_width = usize::from(area.width.saturating_sub(2));
     let mut lines = piano_lines(app, inner_width);
     let active: Vec<_> = app
         .active_notes()
-        .map(|(note, state)| format!("{} [{:>3}] v{:>3}", note, note.value(), state.velocity))
+        .map(|(note, state)| {
+            format!(
+                "{} [{:>3}] v{:>3}",
+                app.note_naming.format_note(note),
+                note.value(),
+                state.velocity
+            )
+        })
         .collect();
     lines.push(Line::from(Span::styled(
         if active.is_empty() {
@@ -265,10 +282,14 @@ fn render_keyboard(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(lines)
             .block(cyber_block(format!(
                 "KEYBOARD · {}—{}",
-                crate::music::MidiNote::new(app.keyboard_base)
-                    .expect("keyboard base is a valid MIDI note"),
-                crate::music::MidiNote::new(app.keyboard_high())
-                    .expect("keyboard high note is valid")
+                app.note_naming.format_note(
+                    crate::music::MidiNote::new(app.keyboard_base)
+                        .expect("keyboard base is a valid MIDI note")
+                ),
+                app.note_naming.format_note(
+                    crate::music::MidiNote::new(app.keyboard_high())
+                        .expect("keyboard high note is valid")
+                )
             )))
             .wrap(Wrap { trim: false }),
         area,
@@ -348,6 +369,9 @@ fn piano_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 
     for key in &white_keys {
         let style = piano_key_style(app, key.note, false);
+        let label = app.note_naming.format_note(
+            crate::music::MidiNote::new(key.note).expect("white-key MIDI note is valid"),
+        );
         for row in &mut rows {
             for cell in &mut row[key.start..key.end] {
                 cell.style = style;
@@ -358,14 +382,11 @@ fn piano_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                 cell.symbol = '│';
             }
         }
-        write_centered(
-            &mut rows[3],
-            *key,
-            &crate::music::MidiNote::new(key.note)
-                .expect("white-key MIDI note is valid")
-                .to_string(),
-            style,
-        );
+        let label_area = KeyPlacement {
+            start: (key.start + 1).min(key.end),
+            ..*key
+        };
+        write_centered(&mut rows[3], label_area, &label, style);
     }
     if width > 0 {
         rows[2][width - 1].symbol = '│';
@@ -374,20 +395,29 @@ fn piano_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 
     for key in &black_keys {
         let style = piano_key_style(app, key.note, true);
+        let note = crate::music::MidiNote::new(key.note).expect("black-key MIDI note is valid");
         for row in &mut rows[..2] {
             for cell in &mut row[key.start..key.end] {
                 cell.symbol = ' ';
                 cell.style = style;
             }
         }
-        write_centered(
-            &mut rows[1],
-            *key,
-            &crate::music::MidiNote::new(key.note)
-                .expect("black-key MIDI note is valid")
-                .to_string(),
-            style,
-        );
+        if app.note_naming == NoteNaming::FixedDo {
+            let syllable = app
+                .note_naming
+                .format_pitch_class(note.pitch_class())
+                .trim_end_matches('#');
+            let accidental_octave = format!("#{}", note.octave());
+            write_centered(&mut rows[0], *key, syllable, style);
+            write_centered(&mut rows[1], *key, &accidental_octave, style);
+        } else {
+            write_centered(
+                &mut rows[1],
+                *key,
+                &app.note_naming.format_note(note),
+                style,
+            );
+        }
     }
 
     rows.into_iter().map(cells_to_line).collect()
@@ -457,7 +487,12 @@ fn render_lower(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .iter()
         .rev()
         .take(5)
-        .map(|event| Line::from(Span::styled(event, Style::default().fg(DIM))))
+        .map(|event| {
+            Line::from(Span::styled(
+                app.format_midi_message(*event),
+                Style::default().fg(DIM),
+            ))
+        })
         .collect();
     frame.render_widget(
         Paragraph::new(recent).block(cyber_block("RECENT MIDI")),
@@ -505,7 +540,7 @@ fn render_lower(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 format!(
                     "detected chord  {}",
                     app.chord
-                        .map_or_else(|| "—".into(), |chord| chord.to_string())
+                        .map_or_else(|| "—".into(), |chord| format_chord(app, chord))
                 ),
                 Style::default().fg(MAGENTA),
             )),
@@ -527,12 +562,19 @@ fn render_lower(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
+const FOOTER: &str = " q quit  tab mode  n names  space pause  r reset  +/- bpm  m mute  ? help ";
+
 fn render_footer(frame: &mut Frame<'_>, area: Rect) {
-    frame.render_widget(Paragraph::new(" q quit  tab mode  space pause  r restart  ←→ option  ↑↓ difficulty  +/- bpm  m mute  [/] volume  ? help ").style(Style::default().fg(DIM).bg(BG)).alignment(Alignment::Center), area);
+    frame.render_widget(
+        Paragraph::new(FOOTER)
+            .style(Style::default().fg(DIM).bg(BG))
+            .alignment(Alignment::Center),
+        area,
+    );
 }
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
-    let popup = centered_rect(68, 72, area);
+    let popup = centered_rect(90, 84, area);
     frame.render_widget(Clear, popup);
     let help = vec![
         Line::from(Span::styled(
@@ -543,6 +585,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("q quit      tab / shift-tab change mode      space pause/resume"),
         Line::from("r restart   ←/→ root or option   ↑/↓ scale or difficulty"),
         Line::from("+/- BPM     m mute              [/] master volume"),
+        Line::from("n toggle note names: Letters / Fixed Do"),
         Line::from("h hide/show target note name (notes mode)    ? or esc close"),
         Line::from(""),
         Line::from(Span::styled(
@@ -655,6 +698,44 @@ mod tests {
     }
 
     #[test]
+    fn fixed_do_piano_labels_fit_at_eighty_columns() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.note_naming = NoteNaming::FixedDo;
+        let lines = piano_lines(&app, 78);
+        let black_syllables = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        let black_accidentals = lines[1]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        let white_labels = lines[3]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert!(black_syllables.contains("Sol"));
+        assert!(black_accidentals.contains("#3"));
+        assert!(white_labels.contains("Do3"));
+        assert!(white_labels.contains("Si4"));
+        assert_eq!(
+            white_labels.chars().filter(|symbol| *symbol == '│').count(),
+            16
+        );
+
+        let (_, black_keys) = piano_geometry(78, 48);
+        assert!(
+            black_keys
+                .windows(2)
+                .all(|keys| keys[0].end < keys[1].start)
+        );
+    }
+
+    #[test]
     fn active_key_style_changes_only_the_matching_note() {
         let now = Instant::now();
         let mut app = App::new(now, 0.7, 100, (48, 72));
@@ -673,5 +754,19 @@ mod tests {
         assert_eq!(compact.chars().count(), 16);
         assert!(compact.ends_with('…'));
         assert_eq!(compact_name("MPKmini2", 12), "MPKmini2");
+        assert!(FOOTER.chars().count() <= 80);
+    }
+
+    #[test]
+    fn help_overlay_exposes_naming_control_at_eighty_columns() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.help = true;
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &app, now)).unwrap();
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("Letters / Fixed Do"));
+        assert!(rendered.contains("Rhythm:"));
     }
 }

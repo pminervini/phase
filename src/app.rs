@@ -1,7 +1,7 @@
 use crate::chord::{self, Chord};
 use crate::controls::{ControlAction, PatchSettings, describe_cc, map_cc};
 use crate::midi::{MidiEvent, MidiMessage};
-use crate::music::MidiNote;
+use crate::music::{MidiNote, NoteNaming};
 use crate::trainer::{
     Attempt, NoteExercise, RhythmGrade, ScaleExercise, SessionMetrics, classify_rhythm,
     nearest_beat_offset,
@@ -64,8 +64,9 @@ pub struct App {
     pub audio_name: String,
     pub audio_ok: bool,
     pub warning: Option<String>,
-    pub recent: VecDeque<String>,
+    pub recent: VecDeque<MidiMessage>,
     pub chord: Option<Chord>,
+    pub note_naming: NoteNaming,
     pub patch: PatchSettings,
     pub last_control: Option<String>,
     pub note_exercise: NoteExercise,
@@ -96,6 +97,7 @@ impl App {
             warning: None,
             recent: VecDeque::with_capacity(RECENT_EVENT_CAPACITY),
             chord: None,
+            note_naming: NoteNaming::Letters,
             patch: PatchSettings::default(),
             last_control: None,
             note_exercise: NoteExercise::new(range, now),
@@ -110,18 +112,7 @@ impl App {
     }
 
     pub fn handle_midi(&mut self, event: MidiEvent) {
-        let recent = match event.message {
-            MidiMessage::ControlChange {
-                channel,
-                controller,
-                value,
-            } => describe_cc(controller, value).map_or_else(
-                || event.message.to_string(),
-                |description| format!("ch {} {description} [{value}]", channel + 1),
-            ),
-            _ => event.message.to_string(),
-        };
-        self.push_recent(recent);
+        self.push_recent(event.message);
         match event.message {
             MidiMessage::NoteOn { note, velocity, .. } => {
                 self.follow_keyboard_note(note);
@@ -168,11 +159,11 @@ impl App {
             Mode::Freeplay => {}
             Mode::Notes => {
                 let attempt = self.note_exercise.attempt(note, now);
-                self.last_feedback = format_attempt(attempt);
+                self.last_feedback = format_attempt(attempt, self.note_naming);
             }
             Mode::Scales => {
                 let attempt = self.scale_exercise.attempt(note, now);
-                self.last_feedback = format_attempt(attempt);
+                self.last_feedback = format_attempt(attempt, self.note_naming);
             }
             Mode::Rhythm => {
                 let beat = self.beat_duration();
@@ -222,6 +213,10 @@ impl App {
             KeyCode::Char(' ') => self.paused = !self.paused,
             KeyCode::Char('r') => self.restart(now),
             KeyCode::Char('m') => self.muted = !self.muted,
+            KeyCode::Char('n') => {
+                self.note_naming = self.note_naming.toggle();
+                self.last_feedback = format!("note names: {}", self.note_naming.label());
+            }
             KeyCode::Char('[') => self.volume = (self.volume - 0.05).clamp(0.0, 1.0),
             KeyCode::Char(']') => self.volume = (self.volume + 0.05).clamp(0.0, 1.0),
             KeyCode::Char('+') | KeyCode::Char('=') => {
@@ -274,6 +269,54 @@ impl App {
         }
     }
 
+    pub fn format_midi_message(&self, message: MidiMessage) -> String {
+        match message {
+            MidiMessage::NoteOn {
+                channel,
+                note,
+                velocity,
+            } => format!(
+                "ch {} note on  {:>3} {:>5} vel {:>3}",
+                channel + 1,
+                note.value(),
+                self.note_naming.format_note(note),
+                velocity
+            ),
+            MidiMessage::NoteOff {
+                channel,
+                note,
+                velocity,
+            } => format!(
+                "ch {} note off {:>3} {:>5} vel {:>3}",
+                channel + 1,
+                note.value(),
+                self.note_naming.format_note(note),
+                velocity
+            ),
+            MidiMessage::ControlChange {
+                channel,
+                controller,
+                value,
+            } => describe_cc(controller, value).map_or_else(
+                || format!("ch {} cc {:>3} value {:>3}", channel + 1, controller, value),
+                |description| format!("ch {} {description} [{value}]", channel + 1),
+            ),
+            MidiMessage::Sustain {
+                channel,
+                down,
+                value,
+            } => format!(
+                "ch {} sustain {} ({value})",
+                channel + 1,
+                if down { "down" } else { "up" }
+            ),
+            MidiMessage::Ignored { status, length } => format!(
+                "ignored MIDI data: status {} length {length}",
+                status.map_or_else(|| "—".into(), |value| format!("0x{value:02x}"))
+            ),
+        }
+    }
+
     fn restart(&mut self, now: Instant) {
         match self.mode {
             Mode::Freeplay => {
@@ -300,7 +343,7 @@ impl App {
         self.last_feedback = format!("{mode} mode");
     }
 
-    fn push_recent(&mut self, message: String) {
+    fn push_recent(&mut self, message: MidiMessage) {
         if self.recent.len() == RECENT_EVENT_CAPACITY {
             self.recent.pop_front();
         }
@@ -332,11 +375,15 @@ impl App {
     }
 }
 
-fn format_attempt(attempt: Attempt) -> String {
+fn format_attempt(attempt: Attempt, note_naming: NoteNaming) -> String {
     if attempt.correct {
         format!("correct · {} ms", attempt.response_time.as_millis())
     } else {
-        format!("expected {}, played {}", attempt.expected, attempt.played)
+        format!(
+            "expected {}, played {}",
+            note_naming.format_note(attempt.expected),
+            note_naming.format_note(attempt.played)
+        )
     }
 }
 
@@ -471,7 +518,10 @@ mod tests {
             now,
         ));
         assert_eq!(app.patch.attack_seconds, 1.5);
-        assert!(app.recent.back().unwrap().contains("K2 attack"));
+        assert!(
+            app.format_midi_message(*app.recent.back().unwrap())
+                .contains("K2 attack")
+        );
 
         app.handle_midi(event(
             MidiMessage::ControlChange {
@@ -491,5 +541,38 @@ mod tests {
             now,
         ));
         assert_eq!(app.bpm, 240);
+    }
+
+    #[test]
+    fn note_naming_toggle_reformats_existing_midi_history() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.handle_midi(event(
+            MidiMessage::NoteOn {
+                channel: 0,
+                note: MidiNote::new(60).unwrap(),
+                velocity: 90,
+            },
+            now,
+        ));
+        let message = *app.recent.back().unwrap();
+        assert!(app.format_midi_message(message).contains("C4"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE), now);
+        assert_eq!(app.note_naming, NoteNaming::FixedDo);
+        assert!(app.format_midi_message(message).contains("Do4"));
+        assert_eq!(app.last_feedback, "note names: Fixed Do");
+
+        let feedback = format_attempt(
+            Attempt {
+                played: MidiNote::new(62).unwrap(),
+                expected: MidiNote::new(60).unwrap(),
+                correct: false,
+                response_time: Duration::from_millis(250),
+                timing_offset_ms: None,
+            },
+            app.note_naming,
+        );
+        assert_eq!(feedback, "expected Do4, played Re4");
     }
 }
