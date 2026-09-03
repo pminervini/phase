@@ -13,6 +13,7 @@
 - `cargo clippy --all-targets --all-features -- -D warnings` treats every lint warning as an error.
 - `cargo build --release` produces the usable binary at `target/release/phase`.
 - `./target/release/phase --smoke-test --no-audio` exercises MIDI parsing, state, synthesis, and an 80x24 render noninteractively.
+- `vhs assets/phase-demo.tape` regenerates the README demo GIF and linked MP4; run it after every TUI modification and commit both updated media files.
 
 Run formatting, tests, Clippy, the release build, and the smoke test before submitting changes. Commit updated `Cargo.lock` whenever dependencies change.
 

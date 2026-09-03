@@ -3,7 +3,7 @@ use crate::controls::{ControlAction, PatchSettings, describe_cc, map_cc};
 use crate::midi::{MidiEvent, MidiMessage};
 use crate::music::{MidiNote, NoteNaming};
 use crate::trainer::{
-    Attempt, NoteExercise, RhythmGrade, ScaleExercise, SessionMetrics, StaffExercise,
+    Attempt, NoteExercise, RhythmGrade, ScaleExercise, SessionMetrics, StaffExercise, StaffSong,
     classify_rhythm, nearest_beat_offset,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -68,6 +68,8 @@ pub struct App {
     pub bpm: u16,
     pub paused: bool,
     pub help: bool,
+    pub song_menu: bool,
+    pub song_menu_index: usize,
     pub midi_name: String,
     pub audio_name: String,
     pub audio_ok: bool,
@@ -100,6 +102,8 @@ impl App {
             bpm,
             paused: false,
             help: false,
+            song_menu: false,
+            song_menu_index: 0,
             midi_name: "not connected".into(),
             audio_name: "disabled".into(),
             audio_ok: false,
@@ -130,7 +134,7 @@ impl App {
                     velocity,
                     held: true,
                 };
-                if !self.paused {
+                if !self.paused && !self.song_menu {
                     self.score_onset(note, event.at);
                 }
             }
@@ -223,7 +227,7 @@ impl App {
 
     pub fn tick(&mut self, now: Instant) -> bool {
         if self.mode == Mode::Staff && !self.paused && self.staff_exercise.tick(now) {
-            self.last_feedback = "Twinkle, Twinkle · follow ◆".into();
+            self.last_feedback = format!("{} · follow ◆", self.staff_exercise.song.label());
         }
         if self.mode != Mode::Rhythm || self.paused {
             return false;
@@ -243,6 +247,28 @@ impl App {
         if key.code == KeyCode::Char('q') && key.modifiers.is_empty() {
             return true;
         }
+        if self.song_menu {
+            match key.code {
+                KeyCode::Esc => self.song_menu = false,
+                KeyCode::Up | KeyCode::Left => {
+                    self.song_menu_index =
+                        (self.song_menu_index + StaffSong::ALL.len() - 1) % StaffSong::ALL.len();
+                }
+                KeyCode::Down | KeyCode::Right => {
+                    self.song_menu_index = (self.song_menu_index + 1) % StaffSong::ALL.len();
+                }
+                KeyCode::Home => self.song_menu_index = 0,
+                KeyCode::End => self.song_menu_index = StaffSong::ALL.len() - 1,
+                KeyCode::Enter => {
+                    let song = StaffSong::ALL[self.song_menu_index];
+                    self.staff_exercise.select_song(song, now);
+                    self.song_menu = false;
+                    self.last_feedback = format!("song: {}", song.label());
+                }
+                _ => {}
+            }
+            return false;
+        }
         match key.code {
             KeyCode::Char('?') => self.help = !self.help,
             KeyCode::Esc if self.help => self.help = false,
@@ -261,6 +287,13 @@ impl App {
                 self.bpm = self.bpm.saturating_add(5).min(300)
             }
             KeyCode::Char('-') => self.bpm = self.bpm.saturating_sub(5).max(30),
+            KeyCode::Enter | KeyCode::Char('s') if self.mode == Mode::Staff && !self.help => {
+                self.song_menu_index = StaffSong::ALL
+                    .iter()
+                    .position(|song| *song == self.staff_exercise.song)
+                    .unwrap_or(0);
+                self.song_menu = true;
+            }
             KeyCode::Left if self.mode == Mode::Scales => self.scale_exercise.shift_root(-1, now),
             KeyCode::Right if self.mode == Mode::Scales => self.scale_exercise.shift_root(1, now),
             KeyCode::Up if self.mode == Mode::Scales => self.scale_exercise.shift_kind(1, now),
@@ -380,6 +413,7 @@ impl App {
 
     fn set_mode(&mut self, mode: Mode, now: Instant) {
         self.mode = mode;
+        self.song_menu = false;
         if mode == Mode::Rhythm {
             self.rhythm_epoch = now;
             self.rhythm_last_beat = 0;
@@ -629,6 +663,12 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), now);
         app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), now);
         assert_eq!(app.mode, Mode::Staff);
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE), now);
+        assert!(app.song_menu);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), now);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), now);
+        assert!(!app.song_menu);
+        assert_eq!(app.staff_exercise.song.label(), "Mary's Lamb");
 
         app.staff_exercise.sequence = vec![MidiNote::new(64).unwrap()];
         app.staff_exercise.index = 0;

@@ -60,7 +60,7 @@ The five modes are:
 
 - **freeplay** — immediate synthesis, held/sustained-note visualization, raw velocity, and inversion-independent triad/seventh chord detection.
 - **notes** — randomized targets in the configured MIDI range, response timing, accuracy, streaks, and weak-note tracking. Press `h` to hide note names.
-- **staff** — sight-read *Twinkle, Twinkle, Little Star* one line at a time. Note names appear beneath the staff, the current note is marked, and progress advances only after the expected note is played. Use `↑` / `↓` to switch between treble and bass clefs.
+- **staff** — sight-read *Twinkle, Twinkle, Little Star*, *Mary Had a Little Lamb*, *Frère Jacques*, or *Ode to Joy* one line at a time. Note names appear beneath the staff, the current note is marked, and progress advances only after the expected note is played. Press `Enter` or `s` to choose from the full song menu and use `↑` / `↓` to switch clefs.
 - **scales** — chromatic, major, natural minor, and major/minor pentatonic practice, ascending and descending, with recent mistakes and completion time.
 - **rhythm** — audible/visible beat practice with signed offsets. Grades are perfect at ±35 ms, good at ±80 ms, early/late through ±180 ms, and miss outside that window.
 
@@ -72,7 +72,8 @@ Controls:
 | `Tab` / `Shift-Tab` | Next / previous mode |
 | `Space` | Pause / resume |
 | `r` | Restart current exercise |
-| `←` / `→` | Change scale root or exercise option |
+| `Enter` / `s` | Open the staff song menu |
+| `←` / `→` | Change scale root |
 | `↑` / `↓` | Change scale or staff clef |
 | `+` / `-` | Adjust BPM |
 | `m` | Mute |

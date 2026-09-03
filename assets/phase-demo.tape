@@ -25,7 +25,12 @@ Sleep 1200ms
 Tab
 Sleep 1300ms
 Tab
-Sleep 4500ms
+Sleep 1200ms
+Type "s"
+Sleep 1800ms
+Down
+Enter
+Sleep 1800ms
 Tab
 Sleep 1200ms
 Tab

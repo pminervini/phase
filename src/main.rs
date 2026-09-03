@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
+use trainer::{StaffClef, StaffSong};
 
 const MIDI_QUEUE_CAPACITY: usize = 1024;
 const FRAME_TIME: Duration = Duration::from_millis(33);
@@ -288,7 +289,12 @@ fn tui_loop(
         }
         let now = Instant::now();
         if demo {
-            for event in demo_state.events(now, app.mode) {
+            for event in demo_state.events(
+                now,
+                app.mode,
+                app.staff_exercise.song,
+                app.staff_exercise.clef,
+            ) {
                 if let Some(command) = AudioCommand::from_midi(event.message)
                     && let Some(engine) = audio
                 {
@@ -346,6 +352,7 @@ struct DemoState {
     step: usize,
     active: Option<MidiNote>,
     mode: Mode,
+    staff_selection: (StaffSong, StaffClef),
 }
 
 impl DemoState {
@@ -355,16 +362,25 @@ impl DemoState {
             step: 0,
             active: None,
             mode: Mode::Freeplay,
+            staff_selection: (StaffSong::Twinkle, StaffClef::Treble),
         }
     }
 
-    fn events(&mut self, now: Instant, mode: Mode) -> Vec<MidiEvent> {
-        if mode != self.mode {
-            self.mode = mode;
-            if mode == Mode::Staff {
-                self.step = 0;
-                self.next = now;
-            }
+    fn events(
+        &mut self,
+        now: Instant,
+        mode: Mode,
+        staff_song: StaffSong,
+        staff_clef: StaffClef,
+    ) -> Vec<MidiEvent> {
+        let entering_staff = mode == Mode::Staff && self.mode != Mode::Staff;
+        let selection = (staff_song, staff_clef);
+        let staff_changed = mode == Mode::Staff && selection != self.staff_selection;
+        self.mode = mode;
+        self.staff_selection = selection;
+        if entering_staff || staff_changed {
+            self.step = 0;
+            self.next = now;
         }
         if now < self.next {
             return Vec::new();
@@ -381,9 +397,20 @@ impl DemoState {
                 at: now,
             });
         }
-        let note =
-            MidiNote::new(trainer::TWINKLE_TREBLE[self.step % trainer::TWINKLE_TREBLE.len()])
-                .expect("demo note is valid");
+        let melody = if mode == Mode::Staff {
+            staff_song.treble_notes()
+        } else {
+            &trainer::TWINKLE_TREBLE
+        };
+        let transpose = if mode == Mode::Staff && staff_clef == StaffClef::Bass {
+            -24
+        } else {
+            0
+        };
+        let note = MidiNote::new(melody[self.step % melody.len()])
+            .expect("demo note is valid")
+            .transpose(transpose)
+            .expect("demo clef transposition remains in the MIDI range");
         let velocity = 65 + ((self.step * 17) % 60) as u8;
         events.push(MidiEvent {
             message: MidiMessage::NoteOn {
@@ -518,5 +545,45 @@ fn record_session(stats: &mut PracticeStats, app: &App) {
     for (&note, &count) in &app.note_exercise.weak_notes {
         let total = stats.weak_note_counts.entry(note).or_default();
         *total = total.saturating_add(count);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note_on(events: Vec<MidiEvent>) -> MidiNote {
+        events
+            .into_iter()
+            .find_map(|event| match event.message {
+                MidiMessage::NoteOn { note, .. } => Some(note),
+                _ => None,
+            })
+            .expect("demo emits a note-on event")
+    }
+
+    #[test]
+    fn demo_restarts_with_the_selected_staff_song_and_clef() {
+        let now = Instant::now();
+        let mut demo = DemoState::new(now);
+        let freeplay =
+            note_on(demo.events(now, Mode::Freeplay, StaffSong::Twinkle, StaffClef::Treble));
+        assert_eq!(freeplay.value(), 67);
+
+        let mary = note_on(demo.events(
+            now + Duration::from_millis(1),
+            Mode::Staff,
+            StaffSong::MarysLamb,
+            StaffClef::Treble,
+        ));
+        assert_eq!(mary.value(), 71);
+
+        let bass = note_on(demo.events(
+            now + Duration::from_millis(2),
+            Mode::Staff,
+            StaffSong::MarysLamb,
+            StaffClef::Bass,
+        ));
+        assert_eq!(bass.value(), 47);
     }
 }

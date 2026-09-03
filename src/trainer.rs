@@ -15,6 +15,22 @@ pub const TWINKLE_TREBLE: [u8; 42] = [
     67, 67, 74, 74, 76, 76, 74, // Twinkle, twinkle, little star
     72, 72, 71, 71, 69, 69, 67, // How I wonder what you are
 ];
+const MARYS_LAMB_TREBLE: [u8; 26] = [
+    71, 69, 67, 69, 71, 71, 71, // Mary had a little lamb
+    69, 69, 69, 71, 74, 74, // Little lamb, little lamb
+    71, 69, 67, 69, 71, 71, 71, 71, // Mary had a little lamb
+    69, 69, 71, 69, 67, // Its fleece was white as snow
+];
+const FRERE_JACQUES_TREBLE: [u8; 32] = [
+    67, 69, 71, 67, 67, 69, 71, 67, // Frère Jacques, dormez-vous?
+    71, 72, 74, 71, 72, 74, // Sonnez les matines
+    74, 76, 74, 72, 71, 67, 74, 76, 74, 72, 71, 67, // Ding, dang, dong
+    67, 74, 67, 67, 74, 67,
+];
+const ODE_TO_JOY_TREBLE: [u8; 30] = [
+    71, 71, 72, 74, 74, 72, 71, 69, 67, 67, 69, 71, 71, 69, 69, // First phrase
+    71, 71, 72, 74, 74, 72, 71, 69, 67, 67, 69, 71, 69, 67, 67, // Second phrase
+];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Attempt {
@@ -187,6 +203,41 @@ pub enum StaffClef {
     Bass,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StaffSong {
+    Twinkle,
+    MarysLamb,
+    FrereJacques,
+    OdeToJoy,
+}
+
+impl StaffSong {
+    pub const ALL: [Self; 4] = [
+        Self::Twinkle,
+        Self::MarysLamb,
+        Self::FrereJacques,
+        Self::OdeToJoy,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Twinkle => "Twinkle",
+            Self::MarysLamb => "Mary's Lamb",
+            Self::FrereJacques => "Frère Jacques",
+            Self::OdeToJoy => "Ode to Joy",
+        }
+    }
+
+    pub const fn treble_notes(self) -> &'static [u8] {
+        match self {
+            Self::Twinkle => &TWINKLE_TREBLE,
+            Self::MarysLamb => &MARYS_LAMB_TREBLE,
+            Self::FrereJacques => &FRERE_JACQUES_TREBLE,
+            Self::OdeToJoy => &ODE_TO_JOY_TREBLE,
+        }
+    }
+}
+
 impl StaffClef {
     pub const fn label(self) -> &'static str {
         match self {
@@ -205,6 +256,7 @@ impl StaffClef {
 
 pub struct StaffExercise {
     pub clef: StaffClef,
+    pub song: StaffSong,
     pub sequence: Vec<MidiNote>,
     pub index: usize,
     pub metrics: SessionMetrics,
@@ -219,6 +271,7 @@ impl StaffExercise {
     pub fn new(now: Instant) -> Self {
         let mut exercise = Self {
             clef: StaffClef::Treble,
+            song: StaffSong::Twinkle,
             sequence: Vec::with_capacity(TWINKLE_TREBLE.len()),
             index: 0,
             metrics: SessionMetrics::default(),
@@ -288,12 +341,19 @@ impl StaffExercise {
         self.load_song(now);
     }
 
+    pub fn select_song(&mut self, song: StaffSong, now: Instant) {
+        self.song = song;
+        self.load_song(now);
+    }
+
     fn load_song(&mut self, now: Instant) {
         let transpose = match self.clef {
             StaffClef::Treble => 0,
             StaffClef::Bass => -24,
         };
-        self.sequence = TWINKLE_TREBLE
+        self.sequence = self
+            .song
+            .treble_notes()
             .iter()
             .map(|value| {
                 MidiNote::new(*value)
@@ -494,6 +554,39 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![43, 43, 50, 50, 52, 52, 50]
         );
+    }
+
+    #[test]
+    fn staff_song_selection_loads_each_beginner_melody() {
+        let now = Instant::now();
+        let mut exercise = StaffExercise::new(now);
+        let expected = [
+            (StaffSong::MarysLamb, 26, vec![71, 69, 67, 69]),
+            (StaffSong::FrereJacques, 32, vec![67, 69, 71, 67]),
+            (StaffSong::OdeToJoy, 30, vec![71, 71, 72, 74]),
+        ];
+
+        for (song, length, opening) in expected {
+            exercise.select_song(song, now);
+            assert_eq!(exercise.song, song);
+            assert_eq!(exercise.sequence.len(), length);
+            assert_eq!(
+                exercise.sequence[..opening.len()]
+                    .iter()
+                    .map(|note| note.value())
+                    .collect::<Vec<_>>(),
+                opening
+            );
+            assert!(
+                exercise
+                    .sequence
+                    .iter()
+                    .all(|note| (64..=77).contains(&note.value()))
+            );
+        }
+
+        exercise.select_song(StaffSong::Twinkle, now);
+        assert_eq!(exercise.song, StaffSong::Twinkle);
     }
 
     #[test]

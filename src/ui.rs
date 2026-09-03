@@ -1,6 +1,6 @@
 use crate::app::{App, Mode};
 use crate::music::{MidiNote, NoteNaming};
-use crate::trainer::{STAFF_LINE_LENGTH, StaffClef};
+use crate::trainer::{STAFF_LINE_LENGTH, StaffClef, StaffSong};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -73,9 +73,11 @@ pub fn render(frame: &mut Frame<'_>, app: &App, now: Instant) {
         render_keyboard(frame, app, chunks[3]);
     }
     render_lower(frame, app, chunks[4]);
-    render_footer(frame, chunks[5]);
+    render_footer(frame, app, chunks[5]);
     if app.help {
         render_help(frame, area);
+    } else if app.song_menu {
+        render_song_menu(frame, app, area);
     }
 }
 
@@ -299,7 +301,8 @@ fn render_staff(frame: &mut Frame<'_>, app: &App, area: Rect) {
         format!("NOTE {}/{}", exercise.index + 1, exercise.sequence.len())
     };
     let title = format!(
-        "STAFF · TWINKLE · {} · {progress} · LINE {}/{} · {status}",
+        "STAFF · {} · {} · {progress} · LINE {}/{} · {status}",
+        exercise.song.label().to_uppercase(),
         exercise.clef.label().to_uppercase(),
         current_line + 1,
         line_count
@@ -756,13 +759,64 @@ fn render_lower(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 const FOOTER: &str = " q quit  tab mode  n names  space pause  r reset  +/- bpm  m mute  ? help ";
+const STAFF_FOOTER: &str =
+    " q quit  tab mode  enter/s songs  ↑/↓ clef  n names  pause  reset  ? help ";
 
-fn render_footer(frame: &mut Frame<'_>, area: Rect) {
+fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(
-        Paragraph::new(FOOTER)
-            .style(Style::default().fg(DIM).bg(BG))
-            .alignment(Alignment::Center),
+        Paragraph::new(if app.mode == Mode::Staff {
+            STAFF_FOOTER
+        } else {
+            FOOTER
+        })
+        .style(Style::default().fg(DIM).bg(BG))
+        .alignment(Alignment::Center),
         area,
+    );
+}
+
+fn render_song_menu(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let popup = centered_fixed(52, 9, area);
+    frame.render_widget(Clear, popup);
+    let mut lines = vec![Line::from(Span::styled(
+        "Choose a song for staff practice",
+        Style::default().fg(TEXT),
+    ))];
+    for (index, song) in StaffSong::ALL.iter().enumerate() {
+        let highlighted = index == app.song_menu_index;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if highlighted { "▶  " } else { "   " },
+                Style::default().fg(MAGENTA),
+            ),
+            Span::styled(
+                song.label(),
+                Style::default()
+                    .fg(if highlighted { MAGENTA } else { TEXT })
+                    .add_modifier(if highlighted {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
+            Span::styled(
+                if *song == app.staff_exercise.song {
+                    "  • playing"
+                } else {
+                    ""
+                },
+                Style::default().fg(CYAN),
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "↑/↓ move   Enter select   Esc close",
+        Style::default().fg(DIM),
+    )));
+    frame.render_widget(
+        Paragraph::new(lines).block(cyber_block("SONG LIBRARY")),
+        popup,
     );
 }
 
@@ -776,7 +830,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         )),
         Line::from(""),
         Line::from("q quit      tab / shift-tab change mode      space pause/resume"),
-        Line::from("r restart   ←/→ root or option   ↑/↓ scale or staff clef"),
+        Line::from("r restart   enter/s staff song menu   ↑/↓ scale or staff clef"),
         Line::from("+/- BPM     m mute              [/] master volume"),
         Line::from("n toggle note names: Letters / Fixed Do"),
         Line::from("h hide/show target note name (notes mode)    ? or esc close"),
@@ -794,7 +848,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
             "MIDI keyboard input is independent of terminal keys.",
             Style::default().fg(CYAN),
         )),
-        Line::from("Staff: Twinkle, Twinkle · ◆ current · cyan notes complete."),
+        Line::from("Staff: enter/s song menu · ◆ current · cyan notes complete."),
         Line::from("Rhythm: perfect ±35 ms, good ±80 ms, early/late to ±180 ms."),
     ];
     frame.render_widget(
@@ -818,6 +872,17 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         Constraint::Percentage((100 - percent_x) / 2),
     ])
     .split(vertical[1])[1]
+}
+
+fn centered_fixed(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    )
 }
 
 #[cfg(test)]
@@ -1000,12 +1065,31 @@ mod tests {
     }
 
     #[test]
+    fn song_menu_lists_every_choice_at_eighty_columns() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.mode = Mode::Staff;
+        app.song_menu = true;
+        app.song_menu_index = 1;
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &app, now)).unwrap();
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("SONG LIBRARY"));
+        for song in StaffSong::ALL {
+            assert!(rendered.contains(song.label()));
+        }
+        assert!(rendered.contains("Enter select"));
+    }
+
+    #[test]
     fn device_names_are_compacted_for_eighty_column_status() {
         let compact = compact_name("MacBook Pro Speakers", 16);
         assert_eq!(compact.chars().count(), 16);
         assert!(compact.ends_with('…'));
         assert_eq!(compact_name("MPKmini2", 12), "MPKmini2");
         assert!(FOOTER.chars().count() <= 80);
+        assert!(STAFF_FOOTER.chars().count() <= 80);
     }
 
     #[test]
