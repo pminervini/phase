@@ -1,5 +1,6 @@
 use crate::app::{App, Mode};
-use crate::music::NoteNaming;
+use crate::music::{MidiNote, NoteNaming};
+use crate::trainer::StaffClef;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -47,8 +48,21 @@ pub fn render(frame: &mut Frame<'_>, app: &App, now: Instant) {
 
     render_title(frame, app, chunks[0]);
     render_status(frame, app, now, chunks[1]);
-    render_exercise(frame, app, chunks[2]);
-    render_keyboard(frame, app, chunks[3]);
+    if app.mode == Mode::Staff {
+        render_staff(
+            frame,
+            app,
+            Rect {
+                x: chunks[2].x,
+                y: chunks[2].y,
+                width: chunks[2].width,
+                height: chunks[2].height + chunks[3].height,
+            },
+        );
+    } else {
+        render_exercise(frame, app, chunks[2]);
+        render_keyboard(frame, app, chunks[3]);
+    }
     render_lower(frame, app, chunks[4]);
     render_footer(frame, chunks[5]);
     if app.help {
@@ -201,6 +215,10 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 ),
             )
         }
+        Mode::Staff => (
+            "sight reading".into(),
+            "Follow the current note on the staff".into(),
+        ),
         Mode::Scales => {
             let mistakes = app
                 .scale_exercise
@@ -246,6 +264,145 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Span::styled(detail, Style::default().fg(TEXT)),
     ]);
     frame.render_widget(Paragraph::new(line).block(cyber_block("TARGET")), area);
+}
+
+fn render_staff(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let exercise = &app.staff_exercise;
+    let progress = (0..exercise.sequence.len())
+        .map(|index| {
+            if index < exercise.index {
+                '■'
+            } else if index == exercise.index {
+                '◆'
+            } else {
+                '·'
+            }
+        })
+        .collect::<String>();
+    let status = if exercise.index == exercise.sequence.len() {
+        "COMPLETE".into()
+    } else {
+        format!("NOTE {}/{}", exercise.index + 1, exercise.sequence.len())
+    };
+    let title = format!(
+        "STAFF · {} · {progress} · {status}",
+        exercise.clef.label().to_uppercase()
+    );
+    let block = cyber_block(title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let staff_height = inner.height.min(9);
+    let staff_area = Rect {
+        x: inner.x,
+        y: inner.y + inner.height.saturating_sub(staff_height) / 2,
+        width: inner.width,
+        height: staff_height,
+    };
+    frame.render_widget(
+        Paragraph::new(staff_lines(app, usize::from(inner.width))),
+        staff_area,
+    );
+}
+
+fn staff_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    let exercise = &app.staff_exercise;
+    let mut rows = vec![
+        vec![
+            PianoCell {
+                symbol: ' ',
+                style: Style::default().bg(PANEL),
+            };
+            width
+        ];
+        9
+    ];
+    for row in (0..9).step_by(2) {
+        for cell in &mut rows[row] {
+            cell.symbol = '─';
+            cell.style = Style::default().fg(DIM).bg(PANEL);
+        }
+    }
+    if width > 3 {
+        let clef = match exercise.clef {
+            StaffClef::Treble => 'G',
+            StaffClef::Bass => 'F',
+        };
+        rows[4][1] = PianoCell {
+            symbol: clef,
+            style: Style::default()
+                .fg(VIOLET)
+                .bg(PANEL)
+                .add_modifier(Modifier::BOLD),
+        };
+        for row in &mut rows {
+            row[3].symbol = '│';
+            row[3].style = Style::default().fg(DIM).bg(PANEL);
+            row[width - 1].symbol = '│';
+            row[width - 1].style = Style::default().fg(DIM).bg(PANEL);
+        }
+    }
+
+    let first_x = 8.min(width.saturating_sub(1));
+    let last_x = width.saturating_sub(5).max(first_x);
+    let denominator = exercise.sequence.len().saturating_sub(1).max(1);
+    for (index, note) in exercise.sequence.iter().copied().enumerate() {
+        let Some(row) = staff_row(note, exercise.clef) else {
+            continue;
+        };
+        let x = first_x + index * last_x.saturating_sub(first_x) / denominator;
+        if x >= width {
+            continue;
+        }
+        let (symbol, style) = if index < exercise.index {
+            (
+                '●',
+                Style::default()
+                    .fg(CYAN)
+                    .bg(PANEL)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else if index == exercise.index {
+            (
+                '◆',
+                Style::default()
+                    .fg(MAGENTA)
+                    .bg(PANEL)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            ('●', Style::default().fg(TEXT).bg(PANEL))
+        };
+        rows[row][x] = PianoCell { symbol, style };
+        if is_sharp(note) && x >= 2 {
+            rows[row][x - 2] = PianoCell { symbol: '#', style };
+        }
+    }
+    rows.into_iter().map(cells_to_line).collect()
+}
+
+fn staff_row(note: MidiNote, clef: StaffClef) -> Option<usize> {
+    let degree = match note.pitch_class().value() {
+        0 | 1 => 0,
+        2 | 3 => 1,
+        4 => 2,
+        5 | 6 => 3,
+        7 | 8 => 4,
+        9 | 10 => 5,
+        11 => 6,
+        _ => unreachable!("pitch classes are modulo 12"),
+    };
+    let note_position = i16::from(note.octave()) * 7 + degree;
+    let top_position = match clef {
+        StaffClef::Treble => 5 * 7 + 3, // F5
+        StaffClef::Bass => 3 * 7 + 5,   // A3
+    };
+    usize::try_from(top_position - note_position)
+        .ok()
+        .filter(|row| *row < 9)
+}
+
+fn is_sharp(note: MidiNote) -> bool {
+    matches!(note.pitch_class().value(), 1 | 3 | 6 | 8 | 10)
 }
 
 fn format_chord(app: &App, chord: crate::chord::Chord) -> String {
@@ -583,7 +740,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         )),
         Line::from(""),
         Line::from("q quit      tab / shift-tab change mode      space pause/resume"),
-        Line::from("r restart   ←/→ root or option   ↑/↓ scale or difficulty"),
+        Line::from("r restart   ←/→ root or option   ↑/↓ scale or staff clef"),
         Line::from("+/- BPM     m mute              [/] master volume"),
         Line::from("n toggle note names: Letters / Fixed Do"),
         Line::from("h hide/show target note name (notes mode)    ? or esc close"),
@@ -746,6 +903,50 @@ mod tests {
         };
         assert_ne!(piano_key_style(&app, 60, false), inactive);
         assert_eq!(piano_key_style(&app, 62, false), inactive);
+    }
+
+    #[test]
+    fn staff_places_notes_by_clef_and_marks_current_progress() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.mode = Mode::Staff;
+        app.staff_exercise.sequence = vec![
+            MidiNote::new(64).unwrap(),
+            MidiNote::new(66).unwrap(),
+            MidiNote::new(77).unwrap(),
+        ];
+        app.staff_exercise.index = 1;
+
+        assert_eq!(
+            staff_row(MidiNote::new(64).unwrap(), StaffClef::Treble),
+            Some(8)
+        );
+        assert_eq!(
+            staff_row(MidiNote::new(77).unwrap(), StaffClef::Treble),
+            Some(0)
+        );
+        let text = staff_lines(&app, 78)
+            .into_iter()
+            .flat_map(|line| line.spans)
+            .map(|span| span.content.into_owned())
+            .collect::<String>();
+        assert!(text.contains('◆'));
+        assert!(text.contains('#'));
+    }
+
+    #[test]
+    fn staff_mode_renders_progress_at_eighty_columns() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.mode = Mode::Staff;
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &app, now)).unwrap();
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("STAFF"));
+        assert!(rendered.contains("TREBLE"));
+        assert!(rendered.contains('◆'));
+        assert!(rendered.contains("NOTE 1/8"));
     }
 
     #[test]

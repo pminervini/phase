@@ -3,8 +3,8 @@ use crate::controls::{ControlAction, PatchSettings, describe_cc, map_cc};
 use crate::midi::{MidiEvent, MidiMessage};
 use crate::music::{MidiNote, NoteNaming};
 use crate::trainer::{
-    Attempt, NoteExercise, RhythmGrade, ScaleExercise, SessionMetrics, classify_rhythm,
-    nearest_beat_offset,
+    Attempt, NoteExercise, RhythmGrade, ScaleExercise, SessionMetrics, StaffExercise,
+    classify_rhythm, nearest_beat_offset,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::VecDeque;
@@ -20,12 +20,19 @@ const HIGHEST_KEYBOARD_BASE: u8 = 96;
 pub enum Mode {
     Freeplay,
     Notes,
+    Staff,
     Scales,
     Rhythm,
 }
 
 impl Mode {
-    const ALL: [Self; 4] = [Self::Freeplay, Self::Notes, Self::Scales, Self::Rhythm];
+    const ALL: [Self; 5] = [
+        Self::Freeplay,
+        Self::Notes,
+        Self::Staff,
+        Self::Scales,
+        Self::Rhythm,
+    ];
 
     fn shift(self, amount: i8) -> Self {
         let index = Self::ALL.iter().position(|mode| *mode == self).unwrap_or(0) as i8;
@@ -38,6 +45,7 @@ impl fmt::Display for Mode {
         f.write_str(match self {
             Self::Freeplay => "freeplay",
             Self::Notes => "notes",
+            Self::Staff => "staff",
             Self::Scales => "scales",
             Self::Rhythm => "rhythm",
         })
@@ -70,6 +78,7 @@ pub struct App {
     pub patch: PatchSettings,
     pub last_control: Option<String>,
     pub note_exercise: NoteExercise,
+    pub staff_exercise: StaffExercise,
     pub scale_exercise: ScaleExercise,
     pub rhythm_metrics: SessionMetrics,
     pub rhythm_note: MidiNote,
@@ -101,6 +110,7 @@ impl App {
             patch: PatchSettings::default(),
             last_control: None,
             note_exercise: NoteExercise::new(range, now),
+            staff_exercise: StaffExercise::new(range, now),
             scale_exercise: ScaleExercise::new(now),
             rhythm_metrics: SessionMetrics::default(),
             rhythm_note: MidiNote::new(60).expect("middle C is a valid MIDI note"),
@@ -161,6 +171,31 @@ impl App {
                 let attempt = self.note_exercise.attempt(note, now);
                 self.last_feedback = format_attempt(attempt, self.note_naming);
             }
+            Mode::Staff => {
+                let completed = self.staff_exercise.completed;
+                if let Some(attempt) = self.staff_exercise.attempt(note, now) {
+                    self.last_feedback = if self.staff_exercise.completed > completed {
+                        format!(
+                            "phrase complete · {:.1} s",
+                            self.staff_exercise
+                                .last_completion
+                                .unwrap_or_default()
+                                .as_secs_f32()
+                        )
+                    } else if attempt.correct {
+                        format!(
+                            "correct · progress {}/{}",
+                            self.staff_exercise.index,
+                            self.staff_exercise.sequence.len()
+                        )
+                    } else {
+                        format!(
+                            "not yet · played {} · current note unchanged",
+                            self.note_naming.format_note(attempt.played)
+                        )
+                    };
+                }
+            }
             Mode::Scales => {
                 let attempt = self.scale_exercise.attempt(note, now);
                 self.last_feedback = format_attempt(attempt, self.note_naming);
@@ -187,6 +222,9 @@ impl App {
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
+        if self.mode == Mode::Staff && !self.paused && self.staff_exercise.tick(now) {
+            self.last_feedback = "new phrase · follow ◆".into();
+        }
         if self.mode != Mode::Rhythm || self.paused {
             return false;
         }
@@ -227,6 +265,10 @@ impl App {
             KeyCode::Right if self.mode == Mode::Scales => self.scale_exercise.shift_root(1, now),
             KeyCode::Up if self.mode == Mode::Scales => self.scale_exercise.shift_kind(1, now),
             KeyCode::Down if self.mode == Mode::Scales => self.scale_exercise.shift_kind(-1, now),
+            KeyCode::Up | KeyCode::Down if self.mode == Mode::Staff => {
+                self.staff_exercise.toggle_clef(now);
+                self.last_feedback = format!("{} clef", self.staff_exercise.clef.label());
+            }
             KeyCode::Char('h') if self.mode == Mode::Notes => {
                 self.note_exercise.hide_name = !self.note_exercise.hide_name
             }
@@ -264,6 +306,7 @@ impl App {
         match self.mode {
             Mode::Freeplay => None,
             Mode::Notes => Some(&self.note_exercise.metrics),
+            Mode::Staff => Some(&self.staff_exercise.metrics),
             Mode::Scales => Some(&self.scale_exercise.metrics),
             Mode::Rhythm => Some(&self.rhythm_metrics),
         }
@@ -324,6 +367,7 @@ impl App {
                 self.sustain = false;
             }
             Mode::Notes => self.note_exercise.restart(now),
+            Mode::Staff => self.staff_exercise.restart(now),
             Mode::Scales => self.scale_exercise.rebuild(now),
             Mode::Rhythm => {
                 self.rhythm_metrics = SessionMetrics::default();
@@ -339,6 +383,8 @@ impl App {
         if mode == Mode::Rhythm {
             self.rhythm_epoch = now;
             self.rhythm_last_beat = 0;
+        } else if mode == Mode::Staff {
+            self.staff_exercise.resume(now);
         }
         self.last_feedback = format!("{mode} mode");
     }
@@ -574,5 +620,38 @@ mod tests {
             app.note_naming,
         );
         assert_eq!(feedback, "expected Do4, played Re4");
+    }
+
+    #[test]
+    fn tab_reaches_staff_mode_and_only_correct_midi_advances_it() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), now);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), now);
+        assert_eq!(app.mode, Mode::Staff);
+
+        app.staff_exercise.sequence = vec![MidiNote::new(64).unwrap()];
+        app.staff_exercise.index = 0;
+        app.handle_midi(event(
+            MidiMessage::NoteOn {
+                channel: 0,
+                note: MidiNote::new(65).unwrap(),
+                velocity: 90,
+            },
+            now,
+        ));
+        assert_eq!(app.staff_exercise.index, 0);
+        assert!(app.last_feedback.contains("current note unchanged"));
+
+        app.handle_midi(event(
+            MidiMessage::NoteOn {
+                channel: 0,
+                note: MidiNote::new(64).unwrap(),
+                velocity: 90,
+            },
+            now + Duration::from_millis(100),
+        ));
+        assert_eq!(app.staff_exercise.index, 1);
+        assert!(app.last_feedback.contains("phrase complete"));
     }
 }

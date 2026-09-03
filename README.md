@@ -56,10 +56,11 @@ CI and noninteractive environments can exercise MIDI parsing/state, offline synt
 
 ## Interface
 
-The four modes are:
+The five modes are:
 
 - **freeplay** — immediate synthesis, held/sustained-note visualization, raw velocity, and inversion-independent triad/seventh chord detection.
 - **notes** — randomized targets in the configured MIDI range, response timing, accuracy, streaks, and weak-note tracking. Press `h` to hide note names.
+- **staff** — eight-note sight-reading phrases on a five-line staff. The current note is marked, correct notes change color, and the progress indicator advances only after the expected note is played. Use `↑` / `↓` to switch between treble and bass clefs.
 - **scales** — chromatic, major, natural minor, and major/minor pentatonic practice, ascending and descending, with recent mistakes and completion time.
 - **rhythm** — audible/visible beat practice with signed offsets. Grades are perfect at ±35 ms, good at ±80 ms, early/late through ±180 ms, and miss outside that window.
 
@@ -72,7 +73,7 @@ Controls:
 | `Space` | Pause / resume |
 | `r` | Restart current exercise |
 | `←` / `→` | Change scale root or exercise option |
-| `↑` / `↓` | Change scale or difficulty |
+| `↑` / `↓` | Change scale or staff clef |
 | `+` / `-` | Adjust BPM |
 | `m` | Mute |
 | `[` / `]` | Adjust master volume |

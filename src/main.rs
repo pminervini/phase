@@ -469,7 +469,18 @@ fn smoke_test() -> Result<()> {
         rendered.contains("Do4"),
         "TUI smoke frame lacks Fixed Do labels"
     );
-    println!("phase smoke test: ok (MIDI parse/state, offline synth, 80x24 Fixed Do TUI render)");
+    app.mode = app::Mode::Staff;
+    terminal
+        .draw(|frame| ui::render(frame, &app, now))
+        .context("render 80x24 staff smoke-test frame")?;
+    let staff_rendered = format!("{:?}", terminal.backend().buffer());
+    anyhow::ensure!(
+        staff_rendered.contains("STAFF") && staff_rendered.contains('◆'),
+        "TUI smoke frame lacks staff or current-note progress marker"
+    );
+    println!(
+        "phase smoke test: ok (MIDI parse/state, offline synth, 80x24 keyboard + staff render)"
+    );
     Ok(())
 }
 
@@ -484,6 +495,7 @@ fn join_warnings(first: Option<String>, second: Option<String>) -> Option<String
 fn record_session(stats: &mut PracticeStats, app: &App) {
     let metrics = [
         ("notes", &app.note_exercise.metrics),
+        ("staff", &app.staff_exercise.metrics),
         ("scales", &app.scale_exercise.metrics),
         ("rhythm", &app.rhythm_metrics),
     ];

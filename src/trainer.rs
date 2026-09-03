@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 pub const RHYTHM_PERFECT_MS: i64 = 35;
 pub const RHYTHM_GOOD_MS: i64 = 80;
 pub const RHYTHM_HIT_WINDOW_MS: i64 = 180;
+pub const STAFF_PHRASE_LENGTH: usize = 8;
+const STAFF_COMPLETE_HOLD: Duration = Duration::from_millis(700);
 
 #[derive(Clone, Copy, Debug)]
 pub struct Attempt {
@@ -171,6 +173,160 @@ impl NoteExercise {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StaffClef {
+    Treble,
+    Bass,
+}
+
+impl StaffClef {
+    pub const fn midi_range(self) -> (u8, u8) {
+        match self {
+            // The five treble lines, E4 through F5.
+            Self::Treble => (64, 77),
+            // The five bass lines, G2 through A3.
+            Self::Bass => (43, 57),
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Treble => "treble",
+            Self::Bass => "bass",
+        }
+    }
+
+    pub const fn toggle(self) -> Self {
+        match self {
+            Self::Treble => Self::Bass,
+            Self::Bass => Self::Treble,
+        }
+    }
+}
+
+pub struct StaffExercise {
+    pub clef: StaffClef,
+    pub sequence: Vec<MidiNote>,
+    pub index: usize,
+    pub metrics: SessionMetrics,
+    pub completed: u32,
+    pub last_completion: Option<Duration>,
+    training_range: (u8, u8),
+    target_since: Instant,
+    phrase_started: Instant,
+    complete_since: Option<Instant>,
+    rng: u64,
+}
+
+impl StaffExercise {
+    pub fn new(range: (u8, u8), now: Instant) -> Self {
+        let mut exercise = Self {
+            clef: StaffClef::Treble,
+            sequence: Vec::with_capacity(STAFF_PHRASE_LENGTH),
+            index: 0,
+            metrics: SessionMetrics::default(),
+            completed: 0,
+            last_completion: None,
+            training_range: normalized_range(range),
+            target_since: now,
+            phrase_started: now,
+            complete_since: None,
+            rng: now.elapsed().as_nanos() as u64 ^ 0x5354_4146_465f_4e4f,
+        };
+        exercise.new_phrase(now);
+        exercise
+    }
+
+    pub fn expected(&self) -> Option<MidiNote> {
+        self.sequence.get(self.index).copied()
+    }
+
+    pub fn attempt(&mut self, played: MidiNote, now: Instant) -> Option<Attempt> {
+        let expected = self.expected()?;
+        let attempt = score_note(
+            played,
+            expected,
+            now.saturating_duration_since(self.target_since),
+        );
+        self.metrics.record(attempt);
+        if attempt.correct {
+            self.index += 1;
+            self.target_since = now;
+            if self.index == self.sequence.len() {
+                self.completed += 1;
+                self.last_completion = Some(now.saturating_duration_since(self.phrase_started));
+                self.complete_since = Some(now);
+            }
+        }
+        Some(attempt)
+    }
+
+    pub fn tick(&mut self, now: Instant) -> bool {
+        if self.complete_since.is_some_and(|completed| {
+            now.saturating_duration_since(completed) >= STAFF_COMPLETE_HOLD
+        }) {
+            self.new_phrase(now);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn restart(&mut self, now: Instant) {
+        self.metrics = SessionMetrics::default();
+        self.completed = 0;
+        self.last_completion = None;
+        self.new_phrase(now);
+    }
+
+    pub fn resume(&mut self, now: Instant) {
+        if self.complete_since.is_some() {
+            self.new_phrase(now);
+        } else {
+            self.target_since = now;
+            self.phrase_started = now;
+        }
+    }
+
+    pub fn toggle_clef(&mut self, now: Instant) {
+        self.clef = self.clef.toggle();
+        self.new_phrase(now);
+    }
+
+    fn new_phrase(&mut self, now: Instant) {
+        self.sequence.clear();
+        let staff_range = self.clef.midi_range();
+        let low = self.training_range.0.max(staff_range.0);
+        let high = self.training_range.1.min(staff_range.1);
+        let (low, high) = if low <= high {
+            (low, high)
+        } else {
+            staff_range
+        };
+        let width = u64::from(high - low) + 1;
+        while self.sequence.len() < STAFF_PHRASE_LENGTH {
+            self.rng ^= self.rng << 13;
+            self.rng ^= self.rng >> 7;
+            self.rng ^= self.rng << 17;
+            let value = low + (self.rng % width) as u8;
+            if self
+                .sequence
+                .last()
+                .is_some_and(|note| note.value() == value)
+                && width > 1
+            {
+                continue;
+            }
+            self.sequence
+                .push(MidiNote::new(value).expect("staff range contains valid MIDI notes"));
+        }
+        self.index = 0;
+        self.target_since = now;
+        self.phrase_started = now;
+        self.complete_since = None;
+    }
+}
+
 pub struct ScaleExercise {
     pub root: PitchClass,
     pub kind: ScaleKind,
@@ -282,6 +438,65 @@ mod tests {
         assert_eq!(metrics.accuracy(), 50.0);
         assert_eq!(metrics.streak, 0);
         assert_eq!(metrics.best_streak, 1);
+    }
+
+    #[test]
+    fn staff_progress_advances_only_for_the_expected_note() {
+        let now = Instant::now();
+        let mut exercise = StaffExercise::new((48, 72), now);
+        exercise.sequence = vec![MidiNote::new(64).unwrap(), MidiNote::new(67).unwrap()];
+        exercise.index = 0;
+
+        let miss = exercise
+            .attempt(MidiNote::new(65).unwrap(), now + Duration::from_millis(100))
+            .unwrap();
+        assert!(!miss.correct);
+        assert_eq!(exercise.index, 0);
+
+        let hit = exercise
+            .attempt(MidiNote::new(64).unwrap(), now + Duration::from_millis(200))
+            .unwrap();
+        assert!(hit.correct);
+        assert_eq!(exercise.index, 1);
+        assert_eq!(exercise.expected(), Some(MidiNote::new(67).unwrap()));
+        assert_eq!(exercise.metrics.attempts, 2);
+    }
+
+    #[test]
+    fn completed_staff_phrase_remains_visible_before_refreshing() {
+        let now = Instant::now();
+        let mut exercise = StaffExercise::new((48, 72), now);
+        exercise.sequence = vec![MidiNote::new(64).unwrap()];
+        exercise.index = 0;
+        exercise.attempt(MidiNote::new(64).unwrap(), now).unwrap();
+
+        assert!(exercise.expected().is_none());
+        assert!(!exercise.tick(now + STAFF_COMPLETE_HOLD - Duration::from_millis(1)));
+        assert_eq!(exercise.index, 1);
+        assert!(exercise.tick(now + STAFF_COMPLETE_HOLD));
+        assert_eq!(exercise.index, 0);
+        assert!(exercise.expected().is_some());
+    }
+
+    #[test]
+    fn staff_clef_uses_notes_that_fit_on_its_five_lines() {
+        let now = Instant::now();
+        let mut exercise = StaffExercise::new((48, 72), now);
+        assert!(
+            exercise
+                .sequence
+                .iter()
+                .all(|note| (64..=72).contains(&note.value()))
+        );
+
+        exercise.toggle_clef(now);
+        assert_eq!(exercise.clef, StaffClef::Bass);
+        assert!(
+            exercise
+                .sequence
+                .iter()
+                .all(|note| (48..=57).contains(&note.value()))
+        );
     }
 
     #[test]
