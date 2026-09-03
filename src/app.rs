@@ -1,4 +1,5 @@
 use crate::chord::{self, Chord};
+use crate::controls::{ControlAction, PatchSettings, describe_cc, map_cc};
 use crate::midi::{MidiEvent, MidiMessage};
 use crate::music::MidiNote;
 use crate::trainer::{
@@ -65,6 +66,8 @@ pub struct App {
     pub warning: Option<String>,
     pub recent: VecDeque<String>,
     pub chord: Option<Chord>,
+    pub patch: PatchSettings,
+    pub last_control: Option<String>,
     pub note_exercise: NoteExercise,
     pub scale_exercise: ScaleExercise,
     pub rhythm_metrics: SessionMetrics,
@@ -93,6 +96,8 @@ impl App {
             warning: None,
             recent: VecDeque::with_capacity(RECENT_EVENT_CAPACITY),
             chord: None,
+            patch: PatchSettings::default(),
+            last_control: None,
             note_exercise: NoteExercise::new(range, now),
             scale_exercise: ScaleExercise::new(now),
             rhythm_metrics: SessionMetrics::default(),
@@ -105,7 +110,18 @@ impl App {
     }
 
     pub fn handle_midi(&mut self, event: MidiEvent) {
-        self.push_recent(event.message.to_string());
+        let recent = match event.message {
+            MidiMessage::ControlChange {
+                channel,
+                controller,
+                value,
+            } => describe_cc(controller, value).map_or_else(
+                || event.message.to_string(),
+                |description| format!("ch {} {description} [{value}]", channel + 1),
+            ),
+            _ => event.message.to_string(),
+        };
+        self.push_recent(recent);
         match event.message {
             MidiMessage::NoteOn { note, velocity, .. } => {
                 self.follow_keyboard_note(note);
@@ -134,7 +150,15 @@ impl App {
                     }
                 }
             }
-            MidiMessage::ControlChange { .. } | MidiMessage::Ignored { .. } => {}
+            MidiMessage::ControlChange {
+                controller, value, ..
+            } => {
+                if let Some(action) = map_cc(controller, value) {
+                    self.apply_control(action);
+                    self.last_control = describe_cc(controller, value);
+                }
+            }
+            MidiMessage::Ignored { .. } => {}
         }
         self.refresh_chord();
     }
@@ -287,6 +311,17 @@ impl App {
         self.chord = chord::detect(self.active_notes().map(|(note, _)| note));
     }
 
+    fn apply_control(&mut self, action: ControlAction) {
+        match action {
+            ControlAction::Volume(level) => {
+                self.volume = level;
+                self.muted = false;
+            }
+            ControlAction::Synth(parameter, value) => self.patch.set(parameter, value),
+            ControlAction::Bpm(bpm) => self.bpm = bpm,
+        }
+    }
+
     fn follow_keyboard_note(&mut self, note: MidiNote) {
         while note.value() < self.keyboard_base && self.keyboard_base >= 12 {
             self.keyboard_base -= 12;
@@ -421,5 +456,40 @@ mod tests {
             ));
         }
         assert_eq!((app.keyboard_base, app.keyboard_high()), (48, 72));
+    }
+
+    #[test]
+    fn mapped_knobs_update_patch_volume_and_tempo() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.handle_midi(event(
+            MidiMessage::ControlChange {
+                channel: 0,
+                controller: 2,
+                value: 127,
+            },
+            now,
+        ));
+        assert_eq!(app.patch.attack_seconds, 1.5);
+        assert!(app.recent.back().unwrap().contains("K2 attack"));
+
+        app.handle_midi(event(
+            MidiMessage::ControlChange {
+                channel: 0,
+                controller: 1,
+                value: 0,
+            },
+            now,
+        ));
+        assert_eq!(app.volume, 0.0);
+        app.handle_midi(event(
+            MidiMessage::ControlChange {
+                channel: 0,
+                controller: 8,
+                value: 127,
+            },
+            now,
+        ));
+        assert_eq!(app.bpm, 240);
     }
 }

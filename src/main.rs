@@ -3,6 +3,7 @@ mod audio;
 mod chord;
 mod cli;
 mod config;
+mod controls;
 mod midi;
 mod music;
 mod stats;
@@ -191,6 +192,7 @@ fn run_tui(
         config.default_bpm,
         (config.training_midi_low, config.training_midi_high),
     );
+    app.patch = config.patch;
     app.warning = warning;
     if let Some(message) = &app.warning {
         app.last_feedback = message.clone();
@@ -204,6 +206,7 @@ fn run_tui(
                 .as_deref()
                 .or(config.preferred_audio_device.as_deref()),
             config.master_volume,
+            config.patch,
         ) {
             Ok(engine) => Some(engine),
             Err(error) => {
@@ -257,6 +260,7 @@ fn run_tui(
 
     config.master_volume = app.volume;
     config.default_bpm = app.bpm;
+    config.patch = app.patch;
     if cli.midi_port.is_some() {
         config.preferred_midi_port.clone_from(&cli.midi_port);
     }

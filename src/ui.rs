@@ -26,7 +26,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App, now: Instant) {
         .constraints(if compact {
             [
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Constraint::Length(4),
                 Constraint::Length(7),
                 Constraint::Min(5),
@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App, now: Instant) {
         } else {
             [
                 Constraint::Length(2),
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Constraint::Length(5),
                 Constraint::Length(9),
                 Constraint::Min(7),
@@ -87,35 +87,85 @@ fn render_title(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
 fn render_status(frame: &mut Frame<'_>, app: &App, now: Instant, area: Rect) {
     let elapsed = app.session_duration(now).as_secs();
-    let audio = if app.audio_ok { "online" } else { "offline" };
+    let audio = if app.audio_ok { "on" } else { "off" };
+    let midi_name = compact_name(&app.midi_name, 12);
+    let audio_name = compact_name(&app.audio_name, 16);
     let status = Line::from(vec![
         Span::styled("MIDI ", Style::default().fg(DIM)),
-        Span::styled(&app.midi_name, Style::default().fg(CYAN)),
-        Span::raw("  "),
+        Span::styled(midi_name, Style::default().fg(CYAN)),
+        Span::raw(" "),
         Span::styled("AUDIO ", Style::default().fg(DIM)),
         Span::styled(
-            format!("{} ({audio})", app.audio_name),
+            format!("{audio_name}:{audio}"),
             Style::default().fg(if app.audio_ok { CYAN } else { MAGENTA }),
         ),
-        Span::raw("  "),
-        Span::styled(format!("{} BPM", app.bpm), Style::default().fg(VIOLET)),
-        Span::raw("  "),
+        Span::raw(" "),
+        Span::styled(format!("K8 {} BPM", app.bpm), Style::default().fg(VIOLET)),
+        Span::raw(" "),
         Span::styled(
             format!("SUS {}", if app.sustain { "ON" } else { "off" }),
             Style::default().fg(if app.sustain { MAGENTA } else { DIM }),
         ),
-        Span::raw("  "),
+        Span::raw(" "),
         Span::styled(
-            format!("VOL {:>3}%", (app.volume * 100.0).round()),
+            format!("K1 {:>3}%", (app.volume * 100.0).round()),
             Style::default().fg(CYAN),
         ),
-        Span::raw("  "),
+        Span::raw(" "),
         Span::styled(
             format!("{:02}:{:02}", elapsed / 60, elapsed % 60),
             Style::default().fg(DIM),
         ),
     ]);
-    frame.render_widget(Paragraph::new(status).block(cyber_block("SYSTEM")), area);
+    let patch = Line::from(vec![
+        Span::styled("K2 atk ", Style::default().fg(DIM)),
+        Span::styled(
+            crate::controls::format_time(app.patch.attack_seconds),
+            Style::default().fg(CYAN),
+        ),
+        Span::styled(" K3 dec ", Style::default().fg(DIM)),
+        Span::styled(
+            crate::controls::format_time(app.patch.decay_seconds),
+            Style::default().fg(CYAN),
+        ),
+        Span::styled(" K4 sus ", Style::default().fg(DIM)),
+        Span::styled(
+            format!("{:.0}%", app.patch.sustain_level * 100.0),
+            Style::default().fg(VIOLET),
+        ),
+        Span::styled(" K5 rel ", Style::default().fg(DIM)),
+        Span::styled(
+            crate::controls::format_time(app.patch.release_seconds),
+            Style::default().fg(CYAN),
+        ),
+        Span::styled(" K6 bri ", Style::default().fg(DIM)),
+        Span::styled(
+            format!("{:.0}%", app.patch.brightness * 100.0),
+            Style::default().fg(MAGENTA),
+        ),
+        Span::styled(" K7 mix ", Style::default().fg(DIM)),
+        Span::styled(
+            format!("{:.0}%", app.patch.harmonic_mix * 100.0),
+            Style::default().fg(MAGENTA),
+        ),
+    ]);
+    frame.render_widget(
+        Paragraph::new(vec![status, patch]).block(cyber_block("SYSTEM")),
+        area,
+    );
+}
+
+fn compact_name(value: &str, maximum: usize) -> String {
+    let count = value.chars().count();
+    if count <= maximum {
+        value.into()
+    } else {
+        value
+            .chars()
+            .take(maximum.saturating_sub(1))
+            .chain(std::iter::once('…'))
+            .collect()
+    }
 }
 
 fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -463,6 +513,12 @@ fn render_lower(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 "velocity-sensitive 32-voice electric piano",
                 Style::default().fg(DIM),
             )),
+            Line::from(Span::styled(
+                app.last_control
+                    .as_deref()
+                    .map_or("knobs K1—K8 ready", |control| control),
+                Style::default().fg(CYAN),
+            )),
         ]
     };
     frame.render_widget(
@@ -488,6 +544,15 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("r restart   ←/→ root or option   ↑/↓ scale or difficulty"),
         Line::from("+/- BPM     m mute              [/] master volume"),
         Line::from("h hide/show target note name (notes mode)    ? or esc close"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "MPK knobs: K1 volume · K2 attack · K3 decay · K4 sustain",
+            Style::default().fg(VIOLET),
+        )),
+        Line::from(Span::styled(
+            "           K5 release · K6 brightness · K7 harmonics · K8 BPM",
+            Style::default().fg(VIOLET),
+        )),
         Line::from(""),
         Line::from(Span::styled(
             "MIDI keyboard input is independent of terminal keys.",
@@ -600,5 +665,13 @@ mod tests {
         };
         assert_ne!(piano_key_style(&app, 60, false), inactive);
         assert_eq!(piano_key_style(&app, 62, false), inactive);
+    }
+
+    #[test]
+    fn device_names_are_compacted_for_eighty_column_status() {
+        let compact = compact_name("MacBook Pro Speakers", 16);
+        assert_eq!(compact.chars().count(), 16);
+        assert!(compact.ends_with('…'));
+        assert_eq!(compact_name("MPKmini2", 12), "MPKmini2");
     }
 }

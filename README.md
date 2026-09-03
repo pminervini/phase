@@ -61,12 +61,28 @@ Controls:
 Terminal keys never generate piano notes; musical input comes only from MIDI or demo mode.
 The two-octave keyboard display follows incoming notes in octave steps when they move beyond the visible range.
 
+The default MPK mini knob bank is mapped directly to the instrument:
+
+| Knob / CC | Function | Range |
+| --- | --- | --- |
+| K1 / CC 1 | Master volume | 0–100% |
+| K2 / CC 2 | Envelope attack | 2 ms–1.5 s |
+| K3 / CC 3 | Envelope decay | 30 ms–3 s |
+| K4 / CC 4 | Envelope sustain | 0–100% |
+| K5 / CC 5 | Envelope release | 30 ms–4 s |
+| K6 / CC 6 | Timbre brightness | 0–100% |
+| K7 / CC 7 | Harmonic mix | 0–100% |
+| K8 / CC 8 | Tempo | 40–240 BPM |
+
+The MPK mini Editor can reassign knob CC numbers. `phase` follows CC 1–8 regardless of which physical knob sends them.
+
 ## 80×24 mockup
 
 ```text
  phase  offline midi instrument + tutor                         PHASE // FREEPLAY
 ┌ SYSTEM ─────────────────────────────────────────────────────────────────────┐
-│MIDI MPKmini2  AUDIO Speakers (online)  100 BPM  SUS off  VOL 72%  00:42    │
+│MIDI MPKmini2 AUDIO Speakers:on K8 100 BPM SUS off K1 72% 00:42             │
+│K2 atk 8ms K3 dec 320ms K4 sus 52% K5 rel 280ms K6 bri 50% K7 mix 50%     │
 └─────────────────────────────────────────────────────────────────────────────┘
 ┌ TARGET ─────────────────────────────────────────────────────────────────────┐
 │  C major      Play freely · chord detection ignores inversions             │
@@ -91,6 +107,7 @@ The two-octave keyboard display follows incoming notes in octave steps when they
 - `midi.rs` — pure defensive MIDI decoding, CoreMIDI discovery/selection, bounded callback handoff.
 - `audio.rs` — CPAL/CoreAudio stream and allocation-free 32-voice synthesizer. The callback drains a fixed-capacity nonblocking command queue and performs no file I/O, logging, locks, or allocation.
 - `music.rs` / `chord.rs` — MIDI note, pitch-class and scale primitives plus inversion-independent chord matching.
+- `controls.rs` — MPK CC mapping, musical parameter ranges, patch state, and control labels.
 - `trainer.rs` — exercise state, centralized score thresholds and monotonic timing.
 - `app.rs` — bounded application state and event transitions, separate from callbacks and rendering.
 - `ui.rs` — approximately 30 FPS Ratatui renderer, including the 80×24 compact layout.

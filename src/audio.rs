@@ -6,6 +6,7 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::controls::{ControlAction, PatchSettings, SynthParameter, map_cc};
 use crate::midi::MidiMessage;
 use crate::music::MidiNote;
 
@@ -14,11 +15,22 @@ pub const COMMAND_QUEUE_CAPACITY: usize = 512;
 
 #[derive(Clone, Copy, Debug)]
 pub enum AudioCommand {
-    NoteOn { note: MidiNote, velocity: u8 },
-    NoteOff { note: MidiNote },
+    NoteOn {
+        note: MidiNote,
+        velocity: u8,
+    },
+    NoteOff {
+        note: MidiNote,
+    },
     Sustain(bool),
     SetVolume(f32),
-    Click { accent: bool },
+    SetParameter {
+        parameter: SynthParameter,
+        value: f32,
+    },
+    Click {
+        accent: bool,
+    },
     AllNotesOff,
 }
 
@@ -28,7 +40,16 @@ impl AudioCommand {
             MidiMessage::NoteOn { note, velocity, .. } => Some(Self::NoteOn { note, velocity }),
             MidiMessage::NoteOff { note, .. } => Some(Self::NoteOff { note }),
             MidiMessage::Sustain { down, .. } => Some(Self::Sustain(down)),
-            MidiMessage::ControlChange { .. } | MidiMessage::Ignored { .. } => None,
+            MidiMessage::ControlChange {
+                controller, value, ..
+            } => match map_cc(controller, value)? {
+                ControlAction::Volume(level) => Some(Self::SetVolume(level)),
+                ControlAction::Synth(parameter, value) => {
+                    Some(Self::SetParameter { parameter, value })
+                }
+                ControlAction::Bpm(_) => None,
+            },
+            MidiMessage::Ignored { .. } => None,
         }
     }
 }
@@ -86,35 +107,38 @@ impl Voice {
         };
     }
 
-    fn release(&mut self, sample_rate: f32) {
+    fn release(&mut self, sample_rate: f32, release_seconds: f32) {
         if self.stage != EnvelopeStage::Off && self.stage != EnvelopeStage::Release {
             self.stage = EnvelopeStage::Release;
             self.release_step =
-                (self.envelope / (0.28 * sample_rate)).max(1.0 / (sample_rate * 2.0));
+                (self.envelope / (release_seconds * sample_rate)).max(1.0 / (sample_rate * 5.0));
         }
     }
 
-    fn sample(&mut self, sample_rate: f32) -> f32 {
+    fn sample(&mut self, sample_rate: f32, patch: PatchSettings) -> f32 {
         if self.stage == EnvelopeStage::Off {
             return 0.0;
         }
 
         match self.stage {
             EnvelopeStage::Attack => {
-                self.envelope += 1.0 / (0.008 * sample_rate);
+                self.envelope += 1.0 / (patch.attack_seconds * sample_rate);
                 if self.envelope >= 1.0 {
                     self.envelope = 1.0;
                     self.stage = EnvelopeStage::Decay;
                 }
             }
             EnvelopeStage::Decay => {
-                self.envelope -= (1.0 - 0.52) / (0.32 * sample_rate);
-                if self.envelope <= 0.52 {
-                    self.envelope = 0.52;
+                self.envelope -= (1.0 - patch.sustain_level) / (patch.decay_seconds * sample_rate);
+                if self.envelope <= patch.sustain_level {
+                    self.envelope = patch.sustain_level;
                     self.stage = EnvelopeStage::Sustain;
                 }
             }
-            EnvelopeStage::Sustain => {}
+            EnvelopeStage::Sustain => {
+                let smoothing = (1.0 / (0.02 * sample_rate)).min(1.0);
+                self.envelope += (patch.sustain_level - self.envelope) * smoothing;
+            }
             EnvelopeStage::Release => {
                 self.envelope -= self.release_step;
                 if self.envelope <= 0.0001 {
@@ -131,11 +155,17 @@ impl Voice {
         self.transient_phase = (self.transient_phase + frequency * 5.97 / sample_rate).fract();
         let velocity_curve = self.velocity.sqrt();
         let fundamental = (self.phase * TAU).sin();
-        let second = (self.phase * 2.0 * TAU).sin() * 0.24;
-        let third = (self.phase * 3.0 * TAU).sin() * 0.09;
-        let warmth = (self.phase * 0.5 * TAU).sin() * 0.05;
-        let hammer =
-            (self.transient_phase * TAU).sin() * self.transient * (0.08 + self.velocity * 0.12);
+        let harmonic_gain = patch.harmonic_mix * 2.0;
+        let second =
+            (self.phase * 2.0 * TAU).sin() * (0.12 + patch.brightness * 0.24) * harmonic_gain;
+        let third =
+            (self.phase * 3.0 * TAU).sin() * (0.04 + patch.brightness * 0.10) * harmonic_gain;
+        let warmth =
+            (self.phase * 0.5 * TAU).sin() * (0.06 - patch.brightness * 0.02) * harmonic_gain;
+        let hammer = (self.transient_phase * TAU).sin()
+            * self.transient
+            * (0.08 + self.velocity * 0.12)
+            * (0.5 + patch.brightness);
         self.transient *= (-1.0 / (0.055 * sample_rate)).exp();
         (fundamental + second + third + warmth + hammer) * self.envelope * velocity_curve * 0.21
     }
@@ -150,6 +180,7 @@ pub struct SynthEngine {
     sample_rate: f32,
     sustain: bool,
     master_volume: f32,
+    patch: PatchSettings,
     serial: u64,
     click_phase: f32,
     click_remaining: u32,
@@ -158,11 +189,16 @@ pub struct SynthEngine {
 
 impl SynthEngine {
     pub fn new(sample_rate: f32, master_volume: f32) -> Self {
+        Self::with_patch(sample_rate, master_volume, PatchSettings::default())
+    }
+
+    pub fn with_patch(sample_rate: f32, master_volume: f32, patch: PatchSettings) -> Self {
         Self {
             voices: [Voice::default(); MAX_VOICES],
             sample_rate: sample_rate.max(8_000.0),
             sustain: false,
             master_volume: master_volume.clamp(0.0, 1.0),
+            patch: patch.sanitize(),
             serial: 0,
             click_phase: 0.0,
             click_remaining: 0,
@@ -182,7 +218,7 @@ impl SynthEngine {
                     if voice.active() && voice.note == note.value() && voice.key_down {
                         voice.key_down = false;
                         if !self.sustain {
-                            voice.release(self.sample_rate);
+                            voice.release(self.sample_rate, self.patch.release_seconds);
                         }
                     }
                 }
@@ -193,12 +229,15 @@ impl SynthEngine {
                 if was_down && !down {
                     for voice in &mut self.voices {
                         if voice.active() && !voice.key_down {
-                            voice.release(self.sample_rate);
+                            voice.release(self.sample_rate, self.patch.release_seconds);
                         }
                     }
                 }
             }
             AudioCommand::SetVolume(volume) => self.master_volume = volume.clamp(0.0, 1.0),
+            AudioCommand::SetParameter { parameter, value } => {
+                self.patch.set(parameter, value);
+            }
             AudioCommand::Click { accent } => {
                 self.click_remaining = (self.sample_rate * 0.035) as u32;
                 self.click_phase = 0.0;
@@ -208,7 +247,7 @@ impl SynthEngine {
                 self.sustain = false;
                 for voice in &mut self.voices {
                     voice.key_down = false;
-                    voice.release(self.sample_rate);
+                    voice.release(self.sample_rate, self.patch.release_seconds);
                 }
             }
             AudioCommand::NoteOn { .. } => {}
@@ -230,8 +269,9 @@ impl SynthEngine {
 
     pub fn next_sample(&mut self) -> f32 {
         let mut mixed = 0.0;
+        let patch = self.patch;
         for voice in &mut self.voices {
-            mixed += voice.sample(self.sample_rate);
+            mixed += voice.sample(self.sample_rate, patch);
         }
         if self.click_remaining > 0 {
             let frequency = if self.click_accent { 1_760.0 } else { 1_320.0 };
@@ -278,7 +318,7 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub fn start(requested: Option<&str>, volume: f32) -> Result<Self> {
+    pub fn start(requested: Option<&str>, volume: f32, patch: PatchSettings) -> Result<Self> {
         let host = cpal::default_host();
         let device = if let Some(needle) = requested {
             let needle_lower = needle.to_lowercase();
@@ -300,15 +340,30 @@ impl AudioEngine {
         let healthy = Arc::new(AtomicBool::new(true));
 
         let stream = match sample_format {
-            SampleFormat::F32 => {
-                build_stream::<f32>(&device, &config, queue.clone(), healthy.clone(), volume)?
-            }
-            SampleFormat::I16 => {
-                build_stream::<i16>(&device, &config, queue.clone(), healthy.clone(), volume)?
-            }
-            SampleFormat::U16 => {
-                build_stream::<u16>(&device, &config, queue.clone(), healthy.clone(), volume)?
-            }
+            SampleFormat::F32 => build_stream::<f32>(
+                &device,
+                &config,
+                queue.clone(),
+                healthy.clone(),
+                volume,
+                patch,
+            )?,
+            SampleFormat::I16 => build_stream::<i16>(
+                &device,
+                &config,
+                queue.clone(),
+                healthy.clone(),
+                volume,
+                patch,
+            )?,
+            SampleFormat::U16 => build_stream::<u16>(
+                &device,
+                &config,
+                queue.clone(),
+                healthy.clone(),
+                volume,
+                patch,
+            )?,
             other => bail!("unsupported default audio sample format: {other:?}"),
         };
         stream.play().context("start CoreAudio output stream")?;
@@ -335,12 +390,13 @@ fn build_stream<T>(
     queue: Arc<ArrayQueue<AudioCommand>>,
     healthy: Arc<AtomicBool>,
     volume: f32,
+    patch: PatchSettings,
 ) -> Result<cpal::Stream>
 where
     T: Sample + SizedSample + FromSample<f32>,
 {
     let channels = usize::from(config.channels);
-    let mut synth = SynthEngine::new(config.sample_rate as f32, volume);
+    let mut synth = SynthEngine::with_patch(config.sample_rate as f32, volume, patch);
     let stream = device
         .build_output_stream(
             *config,
@@ -416,6 +472,50 @@ mod tests {
         assert_ne!(synth.voices[0].stage, EnvelopeStage::Release);
         synth.process(AudioCommand::Sustain(false));
         assert_eq!(synth.voices[0].stage, EnvelopeStage::Release);
+    }
+
+    #[test]
+    fn mapped_cc_commands_reach_synth_parameters() {
+        let message = MidiMessage::ControlChange {
+            channel: 0,
+            controller: 2,
+            value: 127,
+        };
+        let command = AudioCommand::from_midi(message).unwrap();
+        let mut synth = SynthEngine::new(48_000.0, 0.8);
+        synth.process(command);
+        assert_eq!(synth.patch.attack_seconds, 1.5);
+
+        let tempo = MidiMessage::ControlChange {
+            channel: 0,
+            controller: 8,
+            value: 127,
+        };
+        assert!(AudioCommand::from_midi(tempo).is_none());
+    }
+
+    #[test]
+    fn extreme_patch_settings_keep_audio_finite_and_bounded() {
+        let mut synth = SynthEngine::new(48_000.0, 1.0);
+        for (parameter, value) in [
+            (SynthParameter::Attack, 0.002),
+            (SynthParameter::Decay, 0.03),
+            (SynthParameter::Sustain, 1.0),
+            (SynthParameter::Release, 4.0),
+            (SynthParameter::Brightness, 1.0),
+            (SynthParameter::Harmonics, 1.0),
+        ] {
+            synth.process(AudioCommand::SetParameter { parameter, value });
+        }
+        synth.process(AudioCommand::NoteOn {
+            note: note(72),
+            velocity: 127,
+        });
+        for _ in 0..48_000 {
+            let sample = synth.next_sample();
+            assert!(sample.is_finite());
+            assert!((-1.0..=1.0).contains(&sample));
+        }
     }
 
     #[test]

@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const CONFIG_VERSION: u32 = 1;
+use crate::controls::PatchSettings;
+
+pub const CONFIG_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -20,6 +22,7 @@ pub struct Config {
     pub preferred_audio_device: Option<String>,
     pub master_volume: f32,
     pub default_bpm: u16,
+    pub patch: PatchSettings,
     pub training_midi_low: u8,
     pub training_midi_high: u8,
     pub theme: Theme,
@@ -33,6 +36,7 @@ impl Default for Config {
             preferred_audio_device: None,
             master_volume: 0.72,
             default_bpm: 100,
+            patch: PatchSettings::default(),
             training_midi_low: 48,
             training_midi_high: 72,
             theme: Theme::Cyberpunk,
@@ -48,6 +52,7 @@ impl Config {
         }
         self.master_volume = self.master_volume.clamp(0.0, 1.0);
         self.default_bpm = self.default_bpm.clamp(30, 300);
+        self.patch = self.patch.sanitize();
         self.training_midi_low = self.training_midi_low.min(127);
         self.training_midi_high = self.training_midi_high.min(127);
         if self.training_midi_low > self.training_midi_high {
@@ -120,15 +125,22 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.version, CONFIG_VERSION);
         assert!((0.0..=1.0).contains(&config.master_volume));
+        assert!(config.patch.attack_seconds.is_finite());
         assert!(config.training_midi_low <= config.training_midi_high);
     }
 
     #[test]
     fn round_trip_preserves_configuration() {
         let path = temp_path("roundtrip");
+        let patch = PatchSettings {
+            brightness: 0.83,
+            harmonic_mix: 0.27,
+            ..PatchSettings::default()
+        };
         let config = Config {
             master_volume: 0.4,
             default_bpm: 144,
+            patch,
             ..Config::default()
         };
         save_to(&path, &config).unwrap();
@@ -145,6 +157,28 @@ mod tests {
         let (loaded, warning) = load_from(&path).unwrap();
         assert_eq!(loaded, Config::default());
         assert!(warning.is_some());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn older_config_without_patch_loads_patch_defaults() {
+        let path = temp_path("v1");
+        fs::write(
+            &path,
+            r#"
+version = 1
+master_volume = 0.5
+default_bpm = 90
+training_midi_low = 48
+training_midi_high = 72
+theme = "cyberpunk"
+"#,
+        )
+        .unwrap();
+        let (loaded, warning) = load_from(&path).unwrap();
+        assert_eq!(loaded.version, CONFIG_VERSION);
+        assert_eq!(loaded.patch, PatchSettings::default());
+        assert!(warning.is_none());
         fs::remove_file(path).unwrap();
     }
 }
