@@ -1,6 +1,6 @@
 # phase
 
-`phase` is an offline terminal MIDI instrument and interactive piano tutor for macOS. It connects directly to CoreMIDI, synthesizes a velocity-sensitive electric-piano patch through CoreAudio, and renders a focused terminal interface. It needs no DAW, network service, external synthesizer, or SoundFont.
+`phase` is an offline terminal MIDI instrument and interactive piano tutor. It connects directly to the system MIDI and audio backends, synthesizes a velocity-sensitive electric-piano patch, and renders a focused terminal interface. It needs no DAW, network service, external synthesizer, or SoundFont.
 
 ## Screenshot
 
@@ -12,9 +12,19 @@
 
 [Watch or download the MP4 demo](assets/phase-demo.mp4).
 
+## Platform support
+
+`phase` targets the major desktop operating systems through its cross-platform dependencies:
+
+- **macOS** — CoreMIDI through `midir` and CoreAudio through `cpal`.
+- **Linux** — ALSA for MIDI and audio. Building requires the ALSA development files (`libasound2-dev` on Debian/Ubuntu or `alsa-lib-devel` on Fedora).
+- **Windows 8 or newer** — WinMM through `midir` and WASAPI through `cpal`.
+
+The application uses the portable APIs exposed by `midir`, `cpal`, `crossterm`, and `directories`. Apple Silicon has received manual MIDI, audio, and terminal testing; Linux and Windows are expected to work from the available dependency backends but have not yet received equivalent project-level verification. Mobile and web targets are not currently supported.
+
 ## Build and run
 
-Rust 1.85 or newer is required for edition 2024. On macOS:
+Rust 1.85 or newer is required for edition 2024:
 
 ```sh
 cargo build --release
@@ -26,7 +36,7 @@ The application prefers a MIDI input containing `MPKmini2` (case-insensitive). I
 ```sh
 ./target/release/phase devices
 ./target/release/phase --midi-port MPKmini2
-./target/release/phase --audio-device "MacBook Pro Speakers"
+./target/release/phase --audio-device "Speakers"
 ./target/release/phase --demo
 ./target/release/phase --demo --no-audio
 ```
@@ -116,8 +126,8 @@ The MPK mini Editor can reassign knob CC numbers. `phase` follows CC 1–8 regar
 ## Architecture
 
 - `main.rs` / `cli.rs` — startup, subcommands, terminal lifecycle, demo and smoke paths.
-- `midi.rs` — pure defensive MIDI decoding, CoreMIDI discovery/selection, bounded callback handoff.
-- `audio.rs` — CPAL/CoreAudio stream and allocation-free 32-voice synthesizer. The callback drains a fixed-capacity nonblocking command queue and performs no file I/O, logging, locks, or allocation.
+- `midi.rs` — pure defensive MIDI decoding, `midir` discovery/selection, bounded callback handoff.
+- `audio.rs` — `cpal` output stream and allocation-free 32-voice synthesizer. The callback drains a fixed-capacity nonblocking command queue and performs no file I/O, logging, locks, or allocation.
 - `music.rs` / `chord.rs` — MIDI note, pitch-class and scale primitives plus inversion-independent chord matching.
 - `controls.rs` — MPK CC mapping, musical parameter ranges, patch state, and control labels.
 - `trainer.rs` — exercise state, centralized score thresholds and monotonic timing.
@@ -129,7 +139,7 @@ The MIDI callback sends compact note/pedal commands directly to the bounded audi
 
 ## Configuration and data
 
-The `directories` crate resolves platform paths for the `phase` application. On macOS these are under the user Library directories. Run `phase` once to create the human-readable versioned files:
+The `directories` crate resolves platform-appropriate paths for the `phase` application. Run `phase` once to create the human-readable versioned files:
 
 - configuration: the project configuration directory, `phase/config.toml`
 - practice totals: the project local data directory, `phase/practice.toml`
@@ -139,7 +149,7 @@ Configuration stores preferred device substrings, volume, BPM, note naming, trai
 ## Troubleshooting
 
 - Run `phase devices` first. If several MIDI inputs exist and none is `MPKmini2`, pass `--midi-port <substring>`.
-- Use `phase monitor --duration 10` to confirm CoreMIDI events. Note-on velocity zero is decoded as note-off.
+- Use `phase monitor --duration 10` to confirm incoming MIDI events. Note-on velocity zero is decoded as note-off.
 - If audio cannot open, inspect the listed output name, pass `--audio-device <substring>`, or use `--no-audio` while diagnosing it.
 - If the terminal is too small, enlarge it to at least 80×24. The panic hook and terminal guard restore raw mode, cursor visibility, mouse capture, and the original screen on exit.
 - Demo mode works without hardware: `phase --demo`.
