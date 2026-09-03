@@ -402,8 +402,8 @@ impl DemoState {
         } else {
             &trainer::TWINKLE_TREBLE
         };
-        let transpose = if mode == Mode::Staff && staff_clef == StaffClef::Bass {
-            -24
+        let transpose = if mode == Mode::Staff {
+            staff_song.transpose_for(staff_clef)
         } else {
             0
         };

@@ -6,6 +6,7 @@ pub const RHYTHM_PERFECT_MS: i64 = 35;
 pub const RHYTHM_GOOD_MS: i64 = 80;
 pub const RHYTHM_HIT_WINDOW_MS: i64 = 180;
 pub const STAFF_LINE_LENGTH: usize = 7;
+pub const STAFF_SONG_MENU_COLUMNS: usize = 3;
 const STAFF_COMPLETE_HOLD: Duration = Duration::from_millis(700);
 pub const TWINKLE_TREBLE: [u8; 42] = [
     67, 67, 74, 74, 76, 76, 74, // Twinkle, twinkle, little star
@@ -30,6 +31,62 @@ const FRERE_JACQUES_TREBLE: [u8; 32] = [
 const ODE_TO_JOY_TREBLE: [u8; 30] = [
     71, 71, 72, 74, 74, 72, 71, 69, 67, 67, 69, 71, 71, 69, 69, // First phrase
     71, 71, 72, 74, 74, 72, 71, 69, 67, 67, 69, 71, 69, 67, 67, // Second phrase
+];
+const LONDON_BRIDGE_TREBLE: &[u8] = &[
+    74, 76, 74, 72, 71, 72, 74, 69, 71, 72, 71, 72, 74, 74, 76, 74, 72, 71, 72, 74, 69, 74, 71, 67,
+];
+const HOT_CROSS_BUNS_TREBLE: &[u8] = &[
+    71, 69, 67, 71, 69, 67, 67, 67, 67, 67, 69, 69, 69, 69, 71, 69, 67,
+];
+const THREE_BLIND_MICE_TREBLE: &[u8] = &[
+    71, 69, 67, 71, 69, 67, 74, 72, 71, 74, 72, 71, 74, 74, 72, 71, 74, 74, 72, 71, 71, 69, 67,
+];
+const ROW_YOUR_BOAT_TREBLE: &[u8] = &[
+    65, 65, 65, 67, 69, 69, 67, 69, 70, 72, 77, 77, 77, 72, 72, 72, 69, 69, 69, 65, 65, 65, 72, 70,
+    69, 67, 65,
+];
+const THIS_OLD_MAN_TREBLE: &[u8] = &[
+    74, 71, 74, 74, 71, 74, 74, 76, 74, 72, 71, 69, 71, 72, 71, 72, 74, 67, 67, 67, 67, 67, 69, 71,
+    72, 74, 74, 69, 69, 72, 71, 69, 67,
+];
+const SKIP_TO_MY_LOU_TREBLE: &[u8] = &[
+    74, 71, 74, 74, 71, 74, 76, 72, 76, 76, 72, 76, 74, 71, 74, 74, 71, 74, 72, 71, 69, 67,
+];
+const AU_CLAIR_DE_LA_LUNE_TREBLE: &[u8] = &[
+    67, 67, 67, 69, 71, 69, 67, 71, 69, 69, 67, 67, 67, 67, 69, 71, 69, 67, 71, 69, 69, 67,
+];
+const LIGHTLY_ROW_TREBLE: &[u8] = &[
+    74, 71, 71, 72, 69, 69, 67, 69, 71, 72, 74, 74, 74, 74, 71, 71, 72, 69, 69, 67, 71, 74, 74, 67,
+];
+const YANKEE_DOODLE_TREBLE: &[u8] = &[
+    72, 72, 74, 76, 72, 76, 74, 72, 72, 74, 76, 72, 71, 72, 72, 74, 76, 77, 76, 74, 72, 71, 67, 69,
+    71, 72, 72,
+];
+const AMAZING_GRACE_TREBLE: &[u8] = &[
+    64, 69, 73, 69, 73, 71, 69, 66, 64, 64, 69, 73, 69, 73, 71, 76, 73, 76, 73, 69,
+];
+const JINGLE_BELLS_TREBLE: &[u8] = &[
+    71, 71, 71, 71, 71, 71, 71, 74, 67, 69, 71, 72, 72, 72, 72, 72, 71, 71, 71, 71, 69, 69, 71, 69,
+    74, 71, 71, 71, 71, 71, 71, 71, 74, 67, 69, 71, 72, 72, 72, 72, 72, 71, 71, 74, 74, 72, 69, 67,
+];
+const OLD_MACDONALD_TREBLE: &[u8] = &[
+    67, 67, 67, 74, 76, 76, 74, 71, 71, 69, 69, 67, 74, 67, 67, 67, 74, 76, 76, 74, 71, 71, 69, 69,
+    67,
+];
+const HAPPY_BIRTHDAY_TREBLE: &[u8] = &[
+    65, 65, 67, 65, 70, 69, 65, 65, 67, 65, 72, 70, 65, 65, 77, 74, 70, 69, 67, 75, 75, 74, 70, 72,
+    70,
+];
+const SILENT_NIGHT_TREBLE: &[u8] = &[
+    67, 69, 67, 64, 67, 69, 67, 64, 74, 74, 71, 72, 72, 67, 69, 69, 72, 71, 69, 67, 69, 67, 64,
+];
+const OH_SUSANNA_TREBLE: &[u8] = &[
+    67, 69, 71, 74, 74, 76, 74, 71, 67, 69, 71, 71, 69, 67, 69, 67, 69, 71, 74, 74, 76, 74, 71, 67,
+    69, 71, 71, 69, 69, 67,
+];
+const POP_GOES_THE_WEASEL_TREBLE: &[u8] = &[
+    67, 67, 69, 69, 71, 74, 71, 67, 67, 67, 69, 72, 71, 67, 67, 67, 69, 69, 71, 74, 71, 67, 76, 69,
+    72, 71, 67,
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -209,14 +266,46 @@ pub enum StaffSong {
     MarysLamb,
     FrereJacques,
     OdeToJoy,
+    LondonBridge,
+    HotCrossBuns,
+    ThreeBlindMice,
+    RowYourBoat,
+    ThisOldMan,
+    SkipToMyLou,
+    AuClairDeLaLune,
+    LightlyRow,
+    YankeeDoodle,
+    AmazingGrace,
+    JingleBells,
+    OldMacDonald,
+    HappyBirthday,
+    SilentNight,
+    OhSusanna,
+    PopGoesTheWeasel,
 }
 
 impl StaffSong {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 20] = [
         Self::Twinkle,
         Self::MarysLamb,
         Self::FrereJacques,
         Self::OdeToJoy,
+        Self::LondonBridge,
+        Self::HotCrossBuns,
+        Self::ThreeBlindMice,
+        Self::RowYourBoat,
+        Self::ThisOldMan,
+        Self::SkipToMyLou,
+        Self::AuClairDeLaLune,
+        Self::LightlyRow,
+        Self::YankeeDoodle,
+        Self::AmazingGrace,
+        Self::JingleBells,
+        Self::OldMacDonald,
+        Self::HappyBirthday,
+        Self::SilentNight,
+        Self::OhSusanna,
+        Self::PopGoesTheWeasel,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -225,6 +314,22 @@ impl StaffSong {
             Self::MarysLamb => "Mary's Lamb",
             Self::FrereJacques => "Frère Jacques",
             Self::OdeToJoy => "Ode to Joy",
+            Self::LondonBridge => "London Bridge",
+            Self::HotCrossBuns => "Hot Cross Buns",
+            Self::ThreeBlindMice => "Three Blind Mice",
+            Self::RowYourBoat => "Row Your Boat",
+            Self::ThisOldMan => "This Old Man",
+            Self::SkipToMyLou => "Skip to My Lou",
+            Self::AuClairDeLaLune => "Au Clair de la Lune",
+            Self::LightlyRow => "Lightly Row",
+            Self::YankeeDoodle => "Yankee Doodle",
+            Self::AmazingGrace => "Amazing Grace",
+            Self::JingleBells => "Jingle Bells",
+            Self::OldMacDonald => "Old MacDonald",
+            Self::HappyBirthday => "Happy Birthday",
+            Self::SilentNight => "Silent Night",
+            Self::OhSusanna => "Oh! Susanna",
+            Self::PopGoesTheWeasel => "Pop Goes the Weasel",
         }
     }
 
@@ -234,6 +339,37 @@ impl StaffSong {
             Self::MarysLamb => &MARYS_LAMB_TREBLE,
             Self::FrereJacques => &FRERE_JACQUES_TREBLE,
             Self::OdeToJoy => &ODE_TO_JOY_TREBLE,
+            Self::LondonBridge => LONDON_BRIDGE_TREBLE,
+            Self::HotCrossBuns => HOT_CROSS_BUNS_TREBLE,
+            Self::ThreeBlindMice => THREE_BLIND_MICE_TREBLE,
+            Self::RowYourBoat => ROW_YOUR_BOAT_TREBLE,
+            Self::ThisOldMan => THIS_OLD_MAN_TREBLE,
+            Self::SkipToMyLou => SKIP_TO_MY_LOU_TREBLE,
+            Self::AuClairDeLaLune => AU_CLAIR_DE_LA_LUNE_TREBLE,
+            Self::LightlyRow => LIGHTLY_ROW_TREBLE,
+            Self::YankeeDoodle => YANKEE_DOODLE_TREBLE,
+            Self::AmazingGrace => AMAZING_GRACE_TREBLE,
+            Self::JingleBells => JINGLE_BELLS_TREBLE,
+            Self::OldMacDonald => OLD_MACDONALD_TREBLE,
+            Self::HappyBirthday => HAPPY_BIRTHDAY_TREBLE,
+            Self::SilentNight => SILENT_NIGHT_TREBLE,
+            Self::OhSusanna => OH_SUSANNA_TREBLE,
+            Self::PopGoesTheWeasel => POP_GOES_THE_WEASEL_TREBLE,
+        }
+    }
+
+    pub fn transpose_for(self, clef: StaffClef) -> i8 {
+        match clef {
+            StaffClef::Treble => 0,
+            StaffClef::Bass => {
+                let lowest = self
+                    .treble_notes()
+                    .iter()
+                    .copied()
+                    .min()
+                    .expect("staff songs contain notes");
+                43 - lowest as i8
+            }
         }
     }
 }
@@ -347,17 +483,14 @@ impl StaffExercise {
     }
 
     fn load_song(&mut self, now: Instant) {
-        let transpose = match self.clef {
-            StaffClef::Treble => 0,
-            StaffClef::Bass => -24,
-        };
+        let transpose = self.song.transpose_for(self.clef);
         self.sequence = self
             .song
             .treble_notes()
             .iter()
             .map(|value| {
                 MidiNote::new(*value)
-                    .expect("Twinkle melody contains valid MIDI notes")
+                    .expect("staff melody contains valid MIDI notes")
                     .transpose(transpose)
                     .expect("clef transposition remains in the MIDI range")
             })
@@ -587,6 +720,43 @@ mod tests {
 
         exercise.select_song(StaffSong::Twinkle, now);
         assert_eq!(exercise.song, StaffSong::Twinkle);
+    }
+
+    #[test]
+    fn staff_library_has_twenty_distinct_playable_songs() {
+        let now = Instant::now();
+        let mut exercise = StaffExercise::new(now);
+        let labels = StaffSong::ALL
+            .iter()
+            .map(|song| song.label())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(StaffSong::ALL.len(), 20);
+        assert_eq!(labels.len(), StaffSong::ALL.len());
+
+        for song in StaffSong::ALL {
+            exercise.clef = StaffClef::Treble;
+            exercise.select_song(song, now);
+            assert!(!exercise.sequence.is_empty(), "{} is empty", song.label());
+            assert!(
+                exercise
+                    .sequence
+                    .iter()
+                    .all(|note| (64..=77).contains(&note.value())),
+                "{} leaves the treble staff",
+                song.label()
+            );
+
+            exercise.clef = StaffClef::Bass;
+            exercise.select_song(song, now);
+            assert!(
+                exercise
+                    .sequence
+                    .iter()
+                    .all(|note| (43..=57).contains(&note.value())),
+                "{} leaves the bass staff",
+                song.label()
+            );
+        }
     }
 
     #[test]

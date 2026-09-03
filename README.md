@@ -60,7 +60,7 @@ The five modes are:
 
 - **freeplay** — immediate synthesis, held/sustained-note visualization, raw velocity, and inversion-independent triad/seventh chord detection.
 - **notes** — randomized targets in the configured MIDI range, response timing, accuracy, streaks, and weak-note tracking. Press `h` to hide note names.
-- **staff** — sight-read *Twinkle, Twinkle, Little Star*, *Mary Had a Little Lamb*, *Frère Jacques*, or *Ode to Joy* one line at a time. Note names appear beneath the staff, the current note is marked, and progress advances only after the expected note is played. Press `Enter` or `s` to choose from the full song menu and use `↑` / `↓` to switch clefs.
+- **staff** — sight-read one of 20 beginner songs one line at a time. Note names appear beneath the staff, the current note is marked, and progress advances only after the expected note is played. Press `Enter` or `s` to choose from the full song menu and use `↑` / `↓` to switch clefs.
 - **scales** — chromatic, major, natural minor, and major/minor pentatonic practice, ascending and descending, with recent mistakes and completion time.
 - **rhythm** — audible/visible beat practice with signed offsets. Grades are perfect at ±35 ms, good at ±80 ms, early/late through ±180 ms, and miss outside that window.
 
@@ -82,6 +82,7 @@ Controls:
 | `?` | Toggle help overlay |
 
 Terminal keys never generate piano notes; musical input comes only from MIDI or demo mode.
+The staff library includes *Twinkle, Twinkle, Little Star*, *Mary Had a Little Lamb*, *Frère Jacques*, *Ode to Joy*, *London Bridge*, *Hot Cross Buns*, *Three Blind Mice*, *Row Your Boat*, *This Old Man*, *Skip to My Lou*, *Au Clair de la Lune*, *Lightly Row*, *Yankee Doodle*, *Amazing Grace*, *Jingle Bells*, *Old MacDonald*, *Happy Birthday*, *Silent Night*, *Oh! Susanna*, and *Pop Goes the Weasel*.
 The two-octave keyboard display follows incoming notes in octave steps when they move beyond the visible range.
 Press `n` to switch every TUI pitch label between Letters (`C`, `D`, `E`) and Fixed Do (`Do`, `Re`, `Mi`). The selected naming system is saved in configuration; MIDI note numbers and pitches never change.
 

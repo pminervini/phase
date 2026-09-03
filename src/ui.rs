@@ -1,6 +1,6 @@
 use crate::app::{App, Mode};
 use crate::music::{MidiNote, NoteNaming};
-use crate::trainer::{STAFF_LINE_LENGTH, StaffClef, StaffSong};
+use crate::trainer::{STAFF_LINE_LENGTH, STAFF_SONG_MENU_COLUMNS, StaffClef, StaffSong};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -776,48 +776,69 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn render_song_menu(frame: &mut Frame<'_>, app: &App, area: Rect) {
-    let popup = centered_fixed(52, 9, area);
+    let popup = centered_fixed(78, 12, area);
     frame.render_widget(Clear, popup);
     let mut lines = vec![Line::from(Span::styled(
-        "Choose a song for staff practice",
+        "Choose a song for staff practice  • current",
         Style::default().fg(TEXT),
     ))];
-    for (index, song) in StaffSong::ALL.iter().enumerate() {
-        let highlighted = index == app.song_menu_index;
-        lines.push(Line::from(vec![
-            Span::styled(
-                if highlighted { "▶  " } else { "   " },
-                Style::default().fg(MAGENTA),
-            ),
-            Span::styled(
-                song.label(),
+    let row_count = StaffSong::ALL.len().div_ceil(STAFF_SONG_MENU_COLUMNS);
+    let inner_width = usize::from(popup.width.saturating_sub(2));
+    let column_width = inner_width / STAFF_SONG_MENU_COLUMNS;
+    for row in 0..row_count {
+        let mut spans = Vec::with_capacity(STAFF_SONG_MENU_COLUMNS);
+        for column in 0..STAFF_SONG_MENU_COLUMNS {
+            let index = column * row_count + row;
+            let width = if column + 1 == STAFF_SONG_MENU_COLUMNS {
+                inner_width - column_width * column
+            } else {
+                column_width
+            };
+            let Some(song) = StaffSong::ALL.get(index) else {
+                spans.push(Span::raw(" ".repeat(width)));
+                continue;
+            };
+            let highlighted = index == app.song_menu_index;
+            let marker = if highlighted { "▶ " } else { "  " };
+            let current = if *song == app.staff_exercise.song {
+                " •"
+            } else {
+                ""
+            };
+            spans.push(Span::styled(
+                pad_text(&format!("{marker}{}{current}", song.label()), width),
                 Style::default()
-                    .fg(if highlighted { MAGENTA } else { TEXT })
+                    .fg(if highlighted {
+                        MAGENTA
+                    } else if *song == app.staff_exercise.song {
+                        CYAN
+                    } else {
+                        TEXT
+                    })
                     .add_modifier(if highlighted {
                         Modifier::BOLD
                     } else {
                         Modifier::empty()
                     }),
-            ),
-            Span::styled(
-                if *song == app.staff_exercise.song {
-                    "  • playing"
-                } else {
-                    ""
-                },
-                Style::default().fg(CYAN),
-            ),
-        ]));
+            ));
+        }
+        lines.push(Line::from(spans));
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "↑/↓ move   Enter select   Esc close",
+        "Arrow keys move   Enter select   Esc close",
         Style::default().fg(DIM),
     )));
     frame.render_widget(
         Paragraph::new(lines).block(cyber_block("SONG LIBRARY")),
         popup,
     );
+}
+
+fn pad_text(value: &str, width: usize) -> String {
+    let mut value = compact_name(value, width);
+    value.push_str(&" ".repeat(width.saturating_sub(value.chars().count())));
+    value
 }
 
 fn render_help(frame: &mut Frame<'_>, area: Rect) {

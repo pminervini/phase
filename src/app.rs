@@ -3,8 +3,8 @@ use crate::controls::{ControlAction, PatchSettings, describe_cc, map_cc};
 use crate::midi::{MidiEvent, MidiMessage};
 use crate::music::{MidiNote, NoteNaming};
 use crate::trainer::{
-    Attempt, NoteExercise, RhythmGrade, ScaleExercise, SessionMetrics, StaffExercise, StaffSong,
-    classify_rhythm, nearest_beat_offset,
+    Attempt, NoteExercise, RhythmGrade, STAFF_SONG_MENU_COLUMNS, ScaleExercise, SessionMetrics,
+    StaffExercise, StaffSong, classify_rhythm, nearest_beat_offset,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::VecDeque;
@@ -248,14 +248,23 @@ impl App {
             return true;
         }
         if self.song_menu {
+            let rows = StaffSong::ALL.len().div_ceil(STAFF_SONG_MENU_COLUMNS);
             match key.code {
                 KeyCode::Esc => self.song_menu = false,
-                KeyCode::Up | KeyCode::Left => {
-                    self.song_menu_index =
-                        (self.song_menu_index + StaffSong::ALL.len() - 1) % StaffSong::ALL.len();
+                KeyCode::Up if !self.song_menu_index.is_multiple_of(rows) => {
+                    self.song_menu_index -= 1;
                 }
-                KeyCode::Down | KeyCode::Right => {
-                    self.song_menu_index = (self.song_menu_index + 1) % StaffSong::ALL.len();
+                KeyCode::Down
+                    if self.song_menu_index % rows + 1 < rows
+                        && self.song_menu_index + 1 < StaffSong::ALL.len() =>
+                {
+                    self.song_menu_index += 1;
+                }
+                KeyCode::Left if self.song_menu_index >= rows => {
+                    self.song_menu_index -= rows;
+                }
+                KeyCode::Right if self.song_menu_index + rows < StaffSong::ALL.len() => {
+                    self.song_menu_index += rows;
                 }
                 KeyCode::Home => self.song_menu_index = 0,
                 KeyCode::End => self.song_menu_index = StaffSong::ALL.len() - 1,
@@ -693,5 +702,25 @@ mod tests {
         ));
         assert_eq!(app.staff_exercise.index, 1);
         assert!(app.last_feedback.contains("song complete"));
+    }
+
+    #[test]
+    fn song_menu_arrow_keys_navigate_the_visible_grid() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        app.mode = Mode::Staff;
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE), now);
+
+        let rows = StaffSong::ALL.len().div_ceil(STAFF_SONG_MENU_COLUMNS);
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), now);
+        assert_eq!(app.song_menu_index, rows);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), now);
+        assert_eq!(app.song_menu_index, rows + 1);
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), now);
+        assert_eq!(app.song_menu_index, 1);
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), now);
+        assert_eq!(app.song_menu_index, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), now);
+        assert_eq!(app.song_menu_index, 0);
     }
 }
