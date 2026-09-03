@@ -11,6 +11,9 @@ use std::fmt;
 use std::time::{Duration, Instant};
 
 pub const RECENT_EVENT_CAPACITY: usize = 8;
+pub const KEYBOARD_SPAN: u8 = 24;
+const DEFAULT_KEYBOARD_BASE: u8 = 48;
+const HIGHEST_KEYBOARD_BASE: u8 = 96;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Mode {
@@ -49,6 +52,7 @@ pub struct NoteState {
 pub struct App {
     pub mode: Mode,
     pub notes: [NoteState; 128],
+    pub keyboard_base: u8,
     pub sustain: bool,
     pub volume: f32,
     pub muted: bool,
@@ -76,6 +80,7 @@ impl App {
         Self {
             mode: Mode::Freeplay,
             notes: [NoteState::default(); 128],
+            keyboard_base: DEFAULT_KEYBOARD_BASE,
             sustain: false,
             volume,
             muted: false,
@@ -103,6 +108,7 @@ impl App {
         self.push_recent(event.message.to_string());
         match event.message {
             MidiMessage::NoteOn { note, velocity, .. } => {
+                self.follow_keyboard_note(note);
                 self.notes[usize::from(note.value())] = NoteState {
                     velocity,
                     held: true,
@@ -231,6 +237,10 @@ impl App {
             })
     }
 
+    pub const fn keyboard_high(&self) -> u8 {
+        self.keyboard_base + KEYBOARD_SPAN
+    }
+
     pub fn metrics(&self) -> Option<&SessionMetrics> {
         match self.mode {
             Mode::Freeplay => None,
@@ -275,6 +285,15 @@ impl App {
 
     fn refresh_chord(&mut self) {
         self.chord = chord::detect(self.active_notes().map(|(note, _)| note));
+    }
+
+    fn follow_keyboard_note(&mut self, note: MidiNote) {
+        while note.value() < self.keyboard_base && self.keyboard_base >= 12 {
+            self.keyboard_base -= 12;
+        }
+        while note.value() > self.keyboard_high() && self.keyboard_base < HIGHEST_KEYBOARD_BASE {
+            self.keyboard_base += 12;
+        }
     }
 }
 
@@ -357,5 +376,50 @@ mod tests {
             ));
         }
         assert_eq!(app.recent.len(), RECENT_EVENT_CAPACITY);
+    }
+
+    #[test]
+    fn keyboard_window_follows_octave_shifted_notes() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        let note_up = MidiNote::new(74).unwrap();
+        app.handle_midi(event(
+            MidiMessage::NoteOn {
+                channel: 0,
+                note: note_up,
+                velocity: 90,
+            },
+            now,
+        ));
+        assert_eq!((app.keyboard_base, app.keyboard_high()), (60, 84));
+
+        let note_down = MidiNote::new(47).unwrap();
+        app.handle_midi(event(
+            MidiMessage::NoteOn {
+                channel: 0,
+                note: note_down,
+                velocity: 90,
+            },
+            now,
+        ));
+        assert_eq!((app.keyboard_base, app.keyboard_high()), (36, 60));
+    }
+
+    #[test]
+    fn notes_on_visible_boundaries_do_not_move_keyboard_window() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        for value in [48, 72] {
+            let note = MidiNote::new(value).unwrap();
+            app.handle_midi(event(
+                MidiMessage::NoteOn {
+                    channel: 0,
+                    note,
+                    velocity: 90,
+                },
+                now,
+            ));
+        }
+        assert_eq!((app.keyboard_base, app.keyboard_high()), (48, 72));
     }
 }

@@ -59,6 +59,7 @@ Controls:
 | `?` | Toggle help overlay |
 
 Terminal keys never generate piano notes; musical input comes only from MIDI or demo mode.
+The two-octave keyboard display follows incoming notes in octave steps when they move beyond the visible range.
 
 ## 80×24 mockup
 

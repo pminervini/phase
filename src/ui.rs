@@ -55,10 +55,10 @@ pub fn render(frame: &mut Frame<'_>, app: &App, now: Instant) {
     }
 }
 
-fn cyber_block(title: &'static str) -> Block<'static> {
+fn cyber_block(title: impl Into<String>) -> Block<'static> {
     Block::default()
         .title(Span::styled(
-            format!(" {title} "),
+            format!(" {} ", title.into()),
             Style::default().fg(CYAN).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -213,24 +213,30 @@ fn render_keyboard(frame: &mut Frame<'_>, app: &App, area: Rect) {
     )));
     frame.render_widget(
         Paragraph::new(lines)
-            .block(cyber_block("KEYBOARD · C3—C5"))
+            .block(cyber_block(format!(
+                "KEYBOARD · {}—{}",
+                crate::music::MidiNote::new(app.keyboard_base)
+                    .expect("keyboard base is a valid MIDI note"),
+                crate::music::MidiNote::new(app.keyboard_high())
+                    .expect("keyboard high note is valid")
+            )))
             .wrap(Wrap { trim: false }),
         area,
     );
 }
 
-const WHITE_NOTES: [u8; 15] = [48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72];
-const BLACK_NOTES: [(u8, usize); 10] = [
-    (49, 1),
-    (51, 2),
-    (54, 4),
-    (56, 5),
-    (58, 6),
-    (61, 8),
-    (63, 9),
-    (66, 11),
-    (68, 12),
-    (70, 13),
+const WHITE_KEY_OFFSETS: [u8; 15] = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
+const BLACK_KEY_OFFSETS: [(u8, usize); 10] = [
+    (1, 1),
+    (3, 2),
+    (6, 4),
+    (8, 5),
+    (10, 6),
+    (13, 8),
+    (15, 9),
+    (18, 11),
+    (20, 12),
+    (22, 13),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -255,29 +261,29 @@ impl Default for PianoCell {
     }
 }
 
-fn piano_geometry(width: usize) -> (Vec<KeyPlacement>, Vec<KeyPlacement>) {
+fn piano_geometry(width: usize, base: u8) -> (Vec<KeyPlacement>, Vec<KeyPlacement>) {
     if width == 0 {
         return (Vec::new(), Vec::new());
     }
-    let white = WHITE_NOTES
+    let white = WHITE_KEY_OFFSETS
         .iter()
         .enumerate()
-        .map(|(index, &note)| KeyPlacement {
-            note,
-            start: index * width / WHITE_NOTES.len(),
-            end: (index + 1) * width / WHITE_NOTES.len(),
+        .map(|(index, &offset)| KeyPlacement {
+            note: base + offset,
+            start: index * width / WHITE_KEY_OFFSETS.len(),
+            end: (index + 1) * width / WHITE_KEY_OFFSETS.len(),
         })
         .collect::<Vec<_>>();
     let black_width = if width >= 45 { 3 } else { 1 };
-    let black = BLACK_NOTES
+    let black = BLACK_KEY_OFFSETS
         .iter()
-        .map(|&(note, boundary)| {
-            let center = boundary * width / WHITE_NOTES.len();
+        .map(|&(offset, boundary)| {
+            let center = boundary * width / WHITE_KEY_OFFSETS.len();
             let start = center
                 .saturating_sub(black_width / 2)
                 .min(width.saturating_sub(black_width));
             KeyPlacement {
-                note,
+                note: base + offset,
                 start,
                 end: (start + black_width).min(width),
             }
@@ -287,7 +293,7 @@ fn piano_geometry(width: usize) -> (Vec<KeyPlacement>, Vec<KeyPlacement>) {
 }
 
 fn piano_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-    let (white_keys, black_keys) = piano_geometry(width);
+    let (white_keys, black_keys) = piano_geometry(width, app.keyboard_base);
     let mut rows = vec![vec![PianoCell::default(); width]; 4];
 
     for key in &white_keys {
@@ -524,7 +530,7 @@ mod tests {
 
     #[test]
     fn piano_geometry_centers_black_keys_on_white_boundaries() {
-        let (white, black) = piano_geometry(78);
+        let (white, black) = piano_geometry(78, 48);
         assert_eq!(white.len(), 15);
         assert_eq!(black.len(), 10);
         assert_eq!(white.first().unwrap().note, 48);
@@ -532,9 +538,9 @@ mod tests {
         assert_eq!(white.last().unwrap().end, 78);
 
         for key in black {
-            let boundary = BLACK_NOTES
+            let boundary = BLACK_KEY_OFFSETS
                 .iter()
-                .find(|(note, _)| *note == key.note)
+                .find(|(offset, _)| 48 + *offset == key.note)
                 .map(|(_, boundary)| *boundary)
                 .unwrap();
             assert_eq!((key.start + key.end) / 2, white[boundary].start);
@@ -545,7 +551,7 @@ mod tests {
     fn piano_labels_are_anchored_inside_their_keys() {
         let now = Instant::now();
         let app = App::new(now, 0.7, 100, (48, 72));
-        let (white, black) = piano_geometry(78);
+        let (white, black) = piano_geometry(78, 48);
         let mut rows = vec![vec![PianoCell::default(); 78]; 4];
         for key in &white {
             write_centered(
@@ -572,6 +578,15 @@ mod tests {
 
         let lines = piano_lines(&app, 78);
         assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn piano_geometry_transposes_with_keyboard_window() {
+        let (white, black) = piano_geometry(78, 60);
+        assert_eq!(white.first().unwrap().note, 60);
+        assert_eq!(white.last().unwrap().note, 84);
+        assert_eq!(black.first().unwrap().note, 61);
+        assert_eq!(black.last().unwrap().note, 82);
     }
 
     #[test]
