@@ -88,6 +88,10 @@ const POP_GOES_THE_WEASEL_TREBLE: &[u8] = &[
     67, 67, 69, 69, 71, 74, 71, 67, 67, 67, 69, 72, 71, 67, 67, 67, 69, 69, 71, 74, 71, 67, 76, 69,
     72, 71, 67,
 ];
+const FACCETTA_NERA_TREBLE: &[u8] = &[
+    69, 69, 69, 68, 66, 64, 74, 74, 74, 73, 71, 69, 76, 76, 76, 76, 73, 73, 69, 69, 71, 71, 69, 68,
+    66, 64, 64, 68, 71, 74, 74, 76, 74, 73, 71, 64, 68, 71, 74, 71, 73, 74, 76, 74, 73, 71, 69,
+];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Attempt {
@@ -282,10 +286,11 @@ pub enum StaffSong {
     SilentNight,
     OhSusanna,
     PopGoesTheWeasel,
+    FaccettaNera,
 }
 
 impl StaffSong {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Twinkle,
         Self::MarysLamb,
         Self::FrereJacques,
@@ -306,6 +311,7 @@ impl StaffSong {
         Self::SilentNight,
         Self::OhSusanna,
         Self::PopGoesTheWeasel,
+        Self::FaccettaNera,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -330,6 +336,7 @@ impl StaffSong {
             Self::SilentNight => "Silent Night",
             Self::OhSusanna => "Oh! Susanna",
             Self::PopGoesTheWeasel => "Pop Goes the Weasel",
+            Self::FaccettaNera => "Faccetta Nera",
         }
     }
 
@@ -355,6 +362,7 @@ impl StaffSong {
             Self::SilentNight => SILENT_NIGHT_TREBLE,
             Self::OhSusanna => OH_SUSANNA_TREBLE,
             Self::PopGoesTheWeasel => POP_GOES_THE_WEASEL_TREBLE,
+            Self::FaccettaNera => FACCETTA_NERA_TREBLE,
         }
     }
 
@@ -697,6 +705,7 @@ mod tests {
             (StaffSong::MarysLamb, 26, vec![71, 69, 67, 69]),
             (StaffSong::FrereJacques, 32, vec![67, 69, 71, 67]),
             (StaffSong::OdeToJoy, 30, vec![71, 71, 72, 74]),
+            (StaffSong::FaccettaNera, 47, vec![69, 69, 69, 68]),
         ];
 
         for (song, length, opening) in expected {
@@ -723,14 +732,14 @@ mod tests {
     }
 
     #[test]
-    fn staff_library_has_twenty_distinct_playable_songs() {
+    fn staff_library_has_twenty_one_distinct_playable_songs() {
         let now = Instant::now();
         let mut exercise = StaffExercise::new(now);
         let labels = StaffSong::ALL
             .iter()
             .map(|song| song.label())
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(StaffSong::ALL.len(), 20);
+        assert_eq!(StaffSong::ALL.len(), 21);
         assert_eq!(labels.len(), StaffSong::ALL.len());
 
         for song in StaffSong::ALL {
