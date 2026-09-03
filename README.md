@@ -1,6 +1,16 @@
 # phase
 
-`phase` is an offline terminal MIDI instrument and interactive piano tutor for macOS. It connects directly to CoreMIDI, synthesizes a velocity-sensitive electric-piano patch through CoreAudio, and renders a focused cyberpunk TUI. It needs no DAW, network service, external synthesizer, or SoundFont.
+`phase` is an offline terminal MIDI instrument and interactive piano tutor for macOS. It connects directly to CoreMIDI, synthesizes a velocity-sensitive electric-piano patch through CoreAudio, and renders a focused terminal interface. It needs no DAW, network service, external synthesizer, or SoundFont.
+
+## Screenshot
+
+![phase freeplay mode with an active MIDI note](assets/phase.png)
+
+## Video
+
+[![phase demo showing freeplay, Fixed Do, exercises, and help](assets/phase-demo.gif)](assets/phase-demo.mp4)
+
+[Watch or download the MP4 demo](assets/phase-demo.mp4).
 
 ## Build and run
 
