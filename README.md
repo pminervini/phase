@@ -71,10 +71,10 @@ Terminal keys never generate piano notes; musical input comes only from MIDI or 
 │  C major      Play freely · chord detection ignores inversions             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ┌ KEYBOARD · C3—C5 ───────────────────────────────────────────────────────────┐
-│   ███   ███      ███   ███   ███      ███   ███      ███   ███   ███      │
-│ │  ║  │  ║  │  │  ║  │  ║  │  ║  │  │  ║  │  ║  │  │  ║  │  ║  │  ║  │  │
-│ C C#  D D#  E  F F#  G G#  A A#  B  C C#  D D#  E  F F#  G G#  A A#  B  C│
-│active: C4 [ 60] v104  E4 [ 64] v 91  G4 [ 67] v 96                      │
+│    C#3  D#3       F#3  G#3  A#3     C#4  D#4       F#4  G#4  A#4          │
+││    │    │    │    │    │    │    │    │    │    │    │    │    │    │  │
+││ C3 │ D3 │ E3 │ F3 │ G3 │ A3 │ B3 │ C4 │ D4 │ E4 │ F4 │ G4 │ A4 │ B4 │C5│
+│active: C4 [ 60] v104  E4 [ 64] v 91  G4 [ 67] v 96                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ┌ RECENT MIDI ──────────────────────────┐┌ SESSION ───────────────────────────┐
 │ch 1 note on   67  G4 vel  96         ││detected chord  C major            │

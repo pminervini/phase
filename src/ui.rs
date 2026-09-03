@@ -197,62 +197,198 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn render_keyboard(frame: &mut Frame<'_>, app: &App, area: Rect) {
-    let mut upper = Vec::new();
-    let mut lower = Vec::new();
-    let mut labels = Vec::new();
-    for value in 48..=72 {
-        let note = crate::music::MidiNote::new(value).expect("keyboard range is valid");
-        let state = app.notes[usize::from(value)];
-        let black = matches!(note.pitch_class().value(), 1 | 3 | 6 | 8 | 10);
-        let active = state.velocity > 0;
-        let brightness = 90_u8.saturating_add(state.velocity);
-        let active_color = if black {
-            Color::Rgb(brightness, 50, 210)
-        } else {
-            Color::Rgb(20, brightness, 230)
-        };
-        let key_style = if active {
-            Style::default()
-                .fg(Color::Black)
-                .bg(active_color)
-                .add_modifier(Modifier::BOLD)
-        } else if black {
-            Style::default().fg(DIM).bg(Color::Rgb(24, 25, 38))
-        } else {
-            Style::default()
-                .fg(Color::Rgb(170, 178, 193))
-                .bg(Color::Rgb(40, 44, 55))
-        };
-        upper.push(Span::styled(if black { "███" } else { "   " }, key_style));
-        lower.push(Span::styled(if black { " ║ " } else { " │ " }, key_style));
-        labels.push(Span::styled(
-            format!("{:^3}", note.pitch_class()),
-            key_style,
-        ));
-    }
+    let inner_width = usize::from(area.width.saturating_sub(2));
+    let mut lines = piano_lines(app, inner_width);
     let active: Vec<_> = app
         .active_notes()
         .map(|(note, state)| format!("{} [{:>3}] v{:>3}", note, note.value(), state.velocity))
         .collect();
-    let lines = vec![
-        Line::from(upper),
-        Line::from(lower),
-        Line::from(labels),
-        Line::from(Span::styled(
-            if active.is_empty() {
-                "active: —".into()
-            } else {
-                format!("active: {}", active.join("  "))
-            },
-            Style::default().fg(CYAN),
-        )),
-    ];
+    lines.push(Line::from(Span::styled(
+        if active.is_empty() {
+            "active: —".into()
+        } else {
+            format!("active: {}", active.join("  "))
+        },
+        Style::default().fg(CYAN),
+    )));
     frame.render_widget(
         Paragraph::new(lines)
             .block(cyber_block("KEYBOARD · C3—C5"))
-            .wrap(Wrap { trim: true }),
+            .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+const WHITE_NOTES: [u8; 15] = [48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72];
+const BLACK_NOTES: [(u8, usize); 10] = [
+    (49, 1),
+    (51, 2),
+    (54, 4),
+    (56, 5),
+    (58, 6),
+    (61, 8),
+    (63, 9),
+    (66, 11),
+    (68, 12),
+    (70, 13),
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct KeyPlacement {
+    note: u8,
+    start: usize,
+    end: usize,
+}
+
+#[derive(Clone)]
+struct PianoCell {
+    symbol: char,
+    style: Style,
+}
+
+impl Default for PianoCell {
+    fn default() -> Self {
+        Self {
+            symbol: ' ',
+            style: Style::default(),
+        }
+    }
+}
+
+fn piano_geometry(width: usize) -> (Vec<KeyPlacement>, Vec<KeyPlacement>) {
+    if width == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let white = WHITE_NOTES
+        .iter()
+        .enumerate()
+        .map(|(index, &note)| KeyPlacement {
+            note,
+            start: index * width / WHITE_NOTES.len(),
+            end: (index + 1) * width / WHITE_NOTES.len(),
+        })
+        .collect::<Vec<_>>();
+    let black_width = if width >= 45 { 3 } else { 1 };
+    let black = BLACK_NOTES
+        .iter()
+        .map(|&(note, boundary)| {
+            let center = boundary * width / WHITE_NOTES.len();
+            let start = center
+                .saturating_sub(black_width / 2)
+                .min(width.saturating_sub(black_width));
+            KeyPlacement {
+                note,
+                start,
+                end: (start + black_width).min(width),
+            }
+        })
+        .collect();
+    (white, black)
+}
+
+fn piano_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    let (white_keys, black_keys) = piano_geometry(width);
+    let mut rows = vec![vec![PianoCell::default(); width]; 4];
+
+    for key in &white_keys {
+        let style = piano_key_style(app, key.note, false);
+        for row in &mut rows {
+            for cell in &mut row[key.start..key.end] {
+                cell.style = style;
+            }
+        }
+        for row in &mut rows[2..] {
+            if let Some(cell) = row.get_mut(key.start) {
+                cell.symbol = '│';
+            }
+        }
+        write_centered(
+            &mut rows[3],
+            *key,
+            &crate::music::MidiNote::new(key.note)
+                .expect("white-key MIDI note is valid")
+                .to_string(),
+            style,
+        );
+    }
+    if width > 0 {
+        rows[2][width - 1].symbol = '│';
+        rows[3][width - 1].symbol = '│';
+    }
+
+    for key in &black_keys {
+        let style = piano_key_style(app, key.note, true);
+        for row in &mut rows[..2] {
+            for cell in &mut row[key.start..key.end] {
+                cell.symbol = ' ';
+                cell.style = style;
+            }
+        }
+        write_centered(
+            &mut rows[1],
+            *key,
+            &crate::music::MidiNote::new(key.note)
+                .expect("black-key MIDI note is valid")
+                .to_string(),
+            style,
+        );
+    }
+
+    rows.into_iter().map(cells_to_line).collect()
+}
+
+fn piano_key_style(app: &App, note: u8, black: bool) -> Style {
+    let state = app.notes[usize::from(note)];
+    if state.velocity > 0 {
+        let brightness = 96_u8.saturating_add(state.velocity);
+        let background = if black {
+            Color::Rgb(brightness, 38, 196)
+        } else {
+            Color::Rgb(18, brightness, 224)
+        };
+        Style::default()
+            .fg(Color::Black)
+            .bg(background)
+            .add_modifier(Modifier::BOLD)
+    } else if black {
+        Style::default()
+            .fg(Color::Rgb(134, 143, 164))
+            .bg(Color::Rgb(20, 23, 35))
+    } else {
+        Style::default()
+            .fg(Color::Rgb(193, 201, 216))
+            .bg(Color::Rgb(53, 58, 71))
+    }
+}
+
+fn write_centered(row: &mut [PianoCell], key: KeyPlacement, label: &str, style: Style) {
+    let available = key.end.saturating_sub(key.start);
+    let label_width = label.chars().count().min(available);
+    let offset = key.start + available.saturating_sub(label_width) / 2;
+    for (cell, symbol) in row[offset..key.end]
+        .iter_mut()
+        .zip(label.chars().take(label_width))
+    {
+        cell.symbol = symbol;
+        cell.style = style;
+    }
+}
+
+fn cells_to_line(cells: Vec<PianoCell>) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut symbols = String::new();
+    let mut style = cells.first().map_or_else(Style::default, |cell| cell.style);
+    for cell in cells {
+        if cell.style != style && !symbols.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut symbols), style));
+            style = cell.style;
+        }
+        symbols.push(cell.symbol);
+    }
+    if !symbols.is_empty() {
+        spans.push(Span::styled(symbols, style));
+    }
+    Line::from(spans)
 }
 
 fn render_lower(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -374,4 +510,80 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         Constraint::Percentage((100 - percent_x) / 2),
     ])
     .split(vertical[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::NoteState;
+    use std::time::Instant;
+
+    fn row_text(row: &[PianoCell]) -> String {
+        row.iter().map(|cell| cell.symbol).collect()
+    }
+
+    #[test]
+    fn piano_geometry_centers_black_keys_on_white_boundaries() {
+        let (white, black) = piano_geometry(78);
+        assert_eq!(white.len(), 15);
+        assert_eq!(black.len(), 10);
+        assert_eq!(white.first().unwrap().note, 48);
+        assert_eq!(white.last().unwrap().note, 72);
+        assert_eq!(white.last().unwrap().end, 78);
+
+        for key in black {
+            let boundary = BLACK_NOTES
+                .iter()
+                .find(|(note, _)| *note == key.note)
+                .map(|(_, boundary)| *boundary)
+                .unwrap();
+            assert_eq!((key.start + key.end) / 2, white[boundary].start);
+        }
+    }
+
+    #[test]
+    fn piano_labels_are_anchored_inside_their_keys() {
+        let now = Instant::now();
+        let app = App::new(now, 0.7, 100, (48, 72));
+        let (white, black) = piano_geometry(78);
+        let mut rows = vec![vec![PianoCell::default(); 78]; 4];
+        for key in &white {
+            write_centered(
+                &mut rows[3],
+                *key,
+                &crate::music::MidiNote::new(key.note).unwrap().to_string(),
+                Style::default(),
+            );
+        }
+        for key in &black {
+            write_centered(
+                &mut rows[1],
+                *key,
+                &crate::music::MidiNote::new(key.note).unwrap().to_string(),
+                Style::default(),
+            );
+        }
+        let black_labels = row_text(&rows[1]);
+        let white_labels = row_text(&rows[3]);
+        assert_eq!(&black_labels[black[0].start..black[0].end], "C#3");
+        assert!(white_labels[white[0].start..white[0].end].contains("C3"));
+        assert!(white_labels[white[7].start..white[7].end].contains("C4"));
+        assert!(white_labels[white[14].start..white[14].end].contains("C5"));
+
+        let lines = piano_lines(&app, 78);
+        assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn active_key_style_changes_only_the_matching_note() {
+        let now = Instant::now();
+        let mut app = App::new(now, 0.7, 100, (48, 72));
+        let inactive = piano_key_style(&app, 60, false);
+        app.notes[60] = NoteState {
+            velocity: 100,
+            held: true,
+        };
+        assert_ne!(piano_key_style(&app, 60, false), inactive);
+        assert_eq!(piano_key_style(&app, 62, false), inactive);
+    }
 }
