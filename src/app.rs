@@ -110,7 +110,7 @@ impl App {
             patch: PatchSettings::default(),
             last_control: None,
             note_exercise: NoteExercise::new(range, now),
-            staff_exercise: StaffExercise::new(range, now),
+            staff_exercise: StaffExercise::new(now),
             scale_exercise: ScaleExercise::new(now),
             rhythm_metrics: SessionMetrics::default(),
             rhythm_note: MidiNote::new(60).expect("middle C is a valid MIDI note"),
@@ -176,7 +176,7 @@ impl App {
                 if let Some(attempt) = self.staff_exercise.attempt(note, now) {
                     self.last_feedback = if self.staff_exercise.completed > completed {
                         format!(
-                            "phrase complete · {:.1} s",
+                            "song complete · {:.1} s",
                             self.staff_exercise
                                 .last_completion
                                 .unwrap_or_default()
@@ -223,7 +223,7 @@ impl App {
 
     pub fn tick(&mut self, now: Instant) -> bool {
         if self.mode == Mode::Staff && !self.paused && self.staff_exercise.tick(now) {
-            self.last_feedback = "new phrase · follow ◆".into();
+            self.last_feedback = "Twinkle, Twinkle · follow ◆".into();
         }
         if self.mode != Mode::Rhythm || self.paused {
             return false;
@@ -652,6 +652,6 @@ mod tests {
             now + Duration::from_millis(100),
         ));
         assert_eq!(app.staff_exercise.index, 1);
-        assert!(app.last_feedback.contains("phrase complete"));
+        assert!(app.last_feedback.contains("song complete"));
     }
 }

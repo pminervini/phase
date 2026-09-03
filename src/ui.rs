@@ -1,6 +1,6 @@
 use crate::app::{App, Mode};
 use crate::music::{MidiNote, NoteNaming};
-use crate::trainer::StaffClef;
+use crate::trainer::{STAFF_LINE_LENGTH, StaffClef};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -25,7 +25,16 @@ pub fn render(frame: &mut Frame<'_>, app: &App, now: Instant) {
     let compact = area.height <= 24;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(if compact {
+        .constraints(if compact && app.mode == Mode::Staff {
+            [
+                Constraint::Length(1),
+                Constraint::Length(4),
+                Constraint::Length(5),
+                Constraint::Length(7),
+                Constraint::Min(6),
+                Constraint::Length(1),
+            ]
+        } else if compact {
             [
                 Constraint::Length(1),
                 Constraint::Length(4),
@@ -268,11 +277,16 @@ fn render_exercise(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
 fn render_staff(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let exercise = &app.staff_exercise;
-    let progress = (0..exercise.sequence.len())
-        .map(|index| {
-            if index < exercise.index {
+    let line_count = exercise.sequence.len().div_ceil(STAFF_LINE_LENGTH);
+    let current_line = exercise
+        .index
+        .min(exercise.sequence.len().saturating_sub(1))
+        / STAFF_LINE_LENGTH;
+    let progress = (0..line_count)
+        .map(|line| {
+            if line < current_line || exercise.index == exercise.sequence.len() {
                 '■'
-            } else if index == exercise.index {
+            } else if line == current_line {
                 '◆'
             } else {
                 '·'
@@ -285,13 +299,15 @@ fn render_staff(frame: &mut Frame<'_>, app: &App, area: Rect) {
         format!("NOTE {}/{}", exercise.index + 1, exercise.sequence.len())
     };
     let title = format!(
-        "STAFF · {} · {progress} · {status}",
-        exercise.clef.label().to_uppercase()
+        "STAFF · TWINKLE · {} · {progress} · LINE {}/{} · {status}",
+        exercise.clef.label().to_uppercase(),
+        current_line + 1,
+        line_count
     );
     let block = cyber_block(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let staff_height = inner.height.min(9);
+    let staff_height = inner.height.min(10);
     let staff_area = Rect {
         x: inner.x,
         y: inner.y + inner.height.saturating_sub(staff_height) / 2,
@@ -314,7 +330,7 @@ fn staff_lines(app: &App, width: usize) -> Vec<Line<'static>> {
             };
             width
         ];
-        9
+        10
     ];
     for row in (0..9).step_by(2) {
         for cell in &mut rows[row] {
@@ -334,7 +350,7 @@ fn staff_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                 .bg(PANEL)
                 .add_modifier(Modifier::BOLD),
         };
-        for row in &mut rows {
+        for row in rows.iter_mut().take(9) {
             row[3].symbol = '│';
             row[3].style = Style::default().fg(DIM).bg(PANEL);
             row[width - 1].symbol = '│';
@@ -344,12 +360,20 @@ fn staff_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 
     let first_x = 8.min(width.saturating_sub(1));
     let last_x = width.saturating_sub(5).max(first_x);
-    let denominator = exercise.sequence.len().saturating_sub(1).max(1);
-    for (index, note) in exercise.sequence.iter().copied().enumerate() {
+    let current_line = exercise
+        .index
+        .min(exercise.sequence.len().saturating_sub(1))
+        / STAFF_LINE_LENGTH;
+    let start = current_line * STAFF_LINE_LENGTH;
+    let end = (start + STAFF_LINE_LENGTH).min(exercise.sequence.len());
+    let visible = &exercise.sequence[start..end];
+    let denominator = visible.len().saturating_sub(1).max(1);
+    for (local_index, note) in visible.iter().copied().enumerate() {
+        let index = start + local_index;
         let Some(row) = staff_row(note, exercise.clef) else {
             continue;
         };
-        let x = first_x + index * last_x.saturating_sub(first_x) / denominator;
+        let x = first_x + local_index * last_x.saturating_sub(first_x) / denominator;
         if x >= width {
             continue;
         }
@@ -376,8 +400,20 @@ fn staff_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         if is_sharp(note) && x >= 2 {
             rows[row][x - 2] = PianoCell { symbol: '#', style };
         }
+        write_centered_at(&mut rows[9], x, &app.note_naming.format_note(note), style);
     }
     rows.into_iter().map(cells_to_line).collect()
+}
+
+fn write_centered_at(row: &mut [PianoCell], center: usize, label: &str, style: Style) {
+    let label_width = label.chars().count().min(row.len());
+    let start = center
+        .saturating_sub(label_width / 2)
+        .min(row.len().saturating_sub(label_width));
+    for (cell, symbol) in row[start..].iter_mut().zip(label.chars()) {
+        cell.symbol = symbol;
+        cell.style = style;
+    }
 }
 
 fn staff_row(note: MidiNote, clef: StaffClef) -> Option<usize> {
@@ -758,6 +794,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
             "MIDI keyboard input is independent of terminal keys.",
             Style::default().fg(CYAN),
         )),
+        Line::from("Staff: Twinkle, Twinkle · ◆ current · cyan notes complete."),
         Line::from("Rhythm: perfect ±35 ms, good ±80 ms, early/late to ±180 ms."),
     ];
     frame.render_widget(
@@ -932,6 +969,17 @@ mod tests {
             .collect::<String>();
         assert!(text.contains('◆'));
         assert!(text.contains('#'));
+        assert!(text.contains("E4"));
+        assert!(text.contains("F#4"));
+
+        app.note_naming = NoteNaming::FixedDo;
+        let fixed_do = staff_lines(&app, 78)
+            .into_iter()
+            .flat_map(|line| line.spans)
+            .map(|span| span.content.into_owned())
+            .collect::<String>();
+        assert!(fixed_do.contains("Mi4"));
+        assert!(fixed_do.contains("Fa#4"));
     }
 
     #[test]
@@ -946,7 +994,9 @@ mod tests {
         assert!(rendered.contains("STAFF"));
         assert!(rendered.contains("TREBLE"));
         assert!(rendered.contains('◆'));
-        assert!(rendered.contains("NOTE 1/8"));
+        assert!(rendered.contains("TWINKLE"));
+        assert!(rendered.contains("NOTE 1/42"));
+        assert!(rendered.contains("G4"));
     }
 
     #[test]

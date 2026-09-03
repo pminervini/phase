@@ -19,17 +19,19 @@ Enter
 Sleep 1500ms
 Show
 
-Sleep 2500ms
+Sleep 1800ms
 Type "n"
-Sleep 2000ms
+Sleep 1200ms
 Tab
-Sleep 1800ms
+Sleep 1300ms
 Tab
-Sleep 1800ms
+Sleep 4500ms
+Tab
+Sleep 1200ms
+Tab
+Sleep 1200ms
 Type "?"
-Sleep 2000ms
+Sleep 1600ms
 Type "?"
 Sleep 400ms
-Type "n"
-Sleep 200ms
 Type "q"

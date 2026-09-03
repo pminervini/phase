@@ -8,7 +8,7 @@
 
 ## Video
 
-[![phase demo showing freeplay, Fixed Do, exercises, and help](assets/phase-demo.gif)](assets/phase-demo.mp4)
+[![phase demo showing freeplay, staff sight-reading, exercises, and help](assets/phase-demo.gif)](assets/phase-demo.mp4)
 
 [Watch or download the MP4 demo](assets/phase-demo.mp4).
 
@@ -60,7 +60,7 @@ The five modes are:
 
 - **freeplay** — immediate synthesis, held/sustained-note visualization, raw velocity, and inversion-independent triad/seventh chord detection.
 - **notes** — randomized targets in the configured MIDI range, response timing, accuracy, streaks, and weak-note tracking. Press `h` to hide note names.
-- **staff** — eight-note sight-reading phrases on a five-line staff. The current note is marked, correct notes change color, and the progress indicator advances only after the expected note is played. Use `↑` / `↓` to switch between treble and bass clefs.
+- **staff** — sight-read *Twinkle, Twinkle, Little Star* one line at a time. Note names appear beneath the staff, the current note is marked, and progress advances only after the expected note is played. Use `↑` / `↓` to switch between treble and bass clefs.
 - **scales** — chromatic, major, natural minor, and major/minor pentatonic practice, ascending and descending, with recent mistakes and completion time.
 - **rhythm** — audible/visible beat practice with signed offsets. Grades are perfect at ±35 ms, good at ±80 ms, early/late through ±180 ms, and miss outside that window.
 

@@ -11,7 +11,7 @@ mod trainer;
 mod ui;
 
 use anyhow::{Context, Result};
-use app::App;
+use app::{App, Mode};
 use audio::{AudioCommand, AudioEngine, SynthEngine};
 use clap::Parser;
 use cli::{Cli, Command};
@@ -288,7 +288,7 @@ fn tui_loop(
         }
         let now = Instant::now();
         if demo {
-            for event in demo_state.events(now) {
+            for event in demo_state.events(now, app.mode) {
                 if let Some(command) = AudioCommand::from_midi(event.message)
                     && let Some(engine) = audio
                 {
@@ -345,6 +345,7 @@ struct DemoState {
     next: Instant,
     step: usize,
     active: Option<MidiNote>,
+    mode: Mode,
 }
 
 impl DemoState {
@@ -353,15 +354,22 @@ impl DemoState {
             next: now,
             step: 0,
             active: None,
+            mode: Mode::Freeplay,
         }
     }
 
-    fn events(&mut self, now: Instant) -> Vec<MidiEvent> {
+    fn events(&mut self, now: Instant, mode: Mode) -> Vec<MidiEvent> {
+        if mode != self.mode {
+            self.mode = mode;
+            if mode == Mode::Staff {
+                self.step = 0;
+                self.next = now;
+            }
+        }
         if now < self.next {
             return Vec::new();
         }
         self.next = now + Duration::from_millis(430);
-        let melody = [60, 64, 67, 72, 67, 64, 62, 65, 69, 74, 69, 65];
         let mut events = Vec::with_capacity(2);
         if let Some(note) = self.active.take() {
             events.push(MidiEvent {
@@ -373,7 +381,9 @@ impl DemoState {
                 at: now,
             });
         }
-        let note = MidiNote::new(melody[self.step % melody.len()]).expect("demo note is valid");
+        let note =
+            MidiNote::new(trainer::TWINKLE_TREBLE[self.step % trainer::TWINKLE_TREBLE.len()])
+                .expect("demo note is valid");
         let velocity = 65 + ((self.step * 17) % 60) as u8;
         events.push(MidiEvent {
             message: MidiMessage::NoteOn {

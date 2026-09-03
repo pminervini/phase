@@ -5,8 +5,16 @@ use std::time::{Duration, Instant};
 pub const RHYTHM_PERFECT_MS: i64 = 35;
 pub const RHYTHM_GOOD_MS: i64 = 80;
 pub const RHYTHM_HIT_WINDOW_MS: i64 = 180;
-pub const STAFF_PHRASE_LENGTH: usize = 8;
+pub const STAFF_LINE_LENGTH: usize = 7;
 const STAFF_COMPLETE_HOLD: Duration = Duration::from_millis(700);
+pub const TWINKLE_TREBLE: [u8; 42] = [
+    67, 67, 74, 74, 76, 76, 74, // Twinkle, twinkle, little star
+    72, 72, 71, 71, 69, 69, 67, // How I wonder what you are
+    74, 74, 72, 72, 71, 71, 69, // Up above the world so high
+    74, 74, 72, 72, 71, 71, 69, // Like a diamond in the sky
+    67, 67, 74, 74, 76, 76, 74, // Twinkle, twinkle, little star
+    72, 72, 71, 71, 69, 69, 67, // How I wonder what you are
+];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Attempt {
@@ -180,15 +188,6 @@ pub enum StaffClef {
 }
 
 impl StaffClef {
-    pub const fn midi_range(self) -> (u8, u8) {
-        match self {
-            // The five treble lines, E4 through F5.
-            Self::Treble => (64, 77),
-            // The five bass lines, G2 through A3.
-            Self::Bass => (43, 57),
-        }
-    }
-
     pub const fn label(self) -> &'static str {
         match self {
             Self::Treble => "treble",
@@ -211,29 +210,25 @@ pub struct StaffExercise {
     pub metrics: SessionMetrics,
     pub completed: u32,
     pub last_completion: Option<Duration>,
-    training_range: (u8, u8),
     target_since: Instant,
-    phrase_started: Instant,
+    song_started: Instant,
     complete_since: Option<Instant>,
-    rng: u64,
 }
 
 impl StaffExercise {
-    pub fn new(range: (u8, u8), now: Instant) -> Self {
+    pub fn new(now: Instant) -> Self {
         let mut exercise = Self {
             clef: StaffClef::Treble,
-            sequence: Vec::with_capacity(STAFF_PHRASE_LENGTH),
+            sequence: Vec::with_capacity(TWINKLE_TREBLE.len()),
             index: 0,
             metrics: SessionMetrics::default(),
             completed: 0,
             last_completion: None,
-            training_range: normalized_range(range),
             target_since: now,
-            phrase_started: now,
+            song_started: now,
             complete_since: None,
-            rng: now.elapsed().as_nanos() as u64 ^ 0x5354_4146_465f_4e4f,
         };
-        exercise.new_phrase(now);
+        exercise.load_song(now);
         exercise
     }
 
@@ -254,7 +249,7 @@ impl StaffExercise {
             self.target_since = now;
             if self.index == self.sequence.len() {
                 self.completed += 1;
-                self.last_completion = Some(now.saturating_duration_since(self.phrase_started));
+                self.last_completion = Some(now.saturating_duration_since(self.song_started));
                 self.complete_since = Some(now);
             }
         }
@@ -265,7 +260,7 @@ impl StaffExercise {
         if self.complete_since.is_some_and(|completed| {
             now.saturating_duration_since(completed) >= STAFF_COMPLETE_HOLD
         }) {
-            self.new_phrase(now);
+            self.load_song(now);
             true
         } else {
             false
@@ -276,53 +271,40 @@ impl StaffExercise {
         self.metrics = SessionMetrics::default();
         self.completed = 0;
         self.last_completion = None;
-        self.new_phrase(now);
+        self.load_song(now);
     }
 
     pub fn resume(&mut self, now: Instant) {
         if self.complete_since.is_some() {
-            self.new_phrase(now);
+            self.load_song(now);
         } else {
             self.target_since = now;
-            self.phrase_started = now;
+            self.song_started = now;
         }
     }
 
     pub fn toggle_clef(&mut self, now: Instant) {
         self.clef = self.clef.toggle();
-        self.new_phrase(now);
+        self.load_song(now);
     }
 
-    fn new_phrase(&mut self, now: Instant) {
-        self.sequence.clear();
-        let staff_range = self.clef.midi_range();
-        let low = self.training_range.0.max(staff_range.0);
-        let high = self.training_range.1.min(staff_range.1);
-        let (low, high) = if low <= high {
-            (low, high)
-        } else {
-            staff_range
+    fn load_song(&mut self, now: Instant) {
+        let transpose = match self.clef {
+            StaffClef::Treble => 0,
+            StaffClef::Bass => -24,
         };
-        let width = u64::from(high - low) + 1;
-        while self.sequence.len() < STAFF_PHRASE_LENGTH {
-            self.rng ^= self.rng << 13;
-            self.rng ^= self.rng >> 7;
-            self.rng ^= self.rng << 17;
-            let value = low + (self.rng % width) as u8;
-            if self
-                .sequence
-                .last()
-                .is_some_and(|note| note.value() == value)
-                && width > 1
-            {
-                continue;
-            }
-            self.sequence
-                .push(MidiNote::new(value).expect("staff range contains valid MIDI notes"));
-        }
+        self.sequence = TWINKLE_TREBLE
+            .iter()
+            .map(|value| {
+                MidiNote::new(*value)
+                    .expect("Twinkle melody contains valid MIDI notes")
+                    .transpose(transpose)
+                    .expect("clef transposition remains in the MIDI range")
+            })
+            .collect();
         self.index = 0;
         self.target_since = now;
-        self.phrase_started = now;
+        self.song_started = now;
         self.complete_since = None;
     }
 }
@@ -443,7 +425,7 @@ mod tests {
     #[test]
     fn staff_progress_advances_only_for_the_expected_note() {
         let now = Instant::now();
-        let mut exercise = StaffExercise::new((48, 72), now);
+        let mut exercise = StaffExercise::new(now);
         exercise.sequence = vec![MidiNote::new(64).unwrap(), MidiNote::new(67).unwrap()];
         exercise.index = 0;
 
@@ -465,7 +447,7 @@ mod tests {
     #[test]
     fn completed_staff_phrase_remains_visible_before_refreshing() {
         let now = Instant::now();
-        let mut exercise = StaffExercise::new((48, 72), now);
+        let mut exercise = StaffExercise::new(now);
         exercise.sequence = vec![MidiNote::new(64).unwrap()];
         exercise.index = 0;
         exercise.attempt(MidiNote::new(64).unwrap(), now).unwrap();
@@ -479,23 +461,38 @@ mod tests {
     }
 
     #[test]
-    fn staff_clef_uses_notes_that_fit_on_its_five_lines() {
+    fn staff_clef_uses_twinkle_twinkle_in_the_staff_register() {
         let now = Instant::now();
-        let mut exercise = StaffExercise::new((48, 72), now);
-        assert!(
-            exercise
-                .sequence
+        let mut exercise = StaffExercise::new(now);
+        assert_eq!(exercise.sequence.len(), 42);
+        assert_eq!(
+            exercise.sequence[..STAFF_LINE_LENGTH]
                 .iter()
-                .all(|note| (64..=72).contains(&note.value()))
+                .map(|note| note.value())
+                .collect::<Vec<_>>(),
+            vec![67, 67, 74, 74, 76, 76, 74]
         );
+        let lines = exercise
+            .sequence
+            .chunks(STAFF_LINE_LENGTH)
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 6);
+        assert_eq!(
+            lines[1].iter().map(|note| note.value()).collect::<Vec<_>>(),
+            vec![72, 72, 71, 71, 69, 69, 67]
+        );
+        assert_eq!(lines[2], lines[3]);
+        assert_eq!(lines[0], lines[4]);
+        assert_eq!(lines[1], lines[5]);
 
         exercise.toggle_clef(now);
         assert_eq!(exercise.clef, StaffClef::Bass);
-        assert!(
-            exercise
-                .sequence
+        assert_eq!(
+            exercise.sequence[..STAFF_LINE_LENGTH]
                 .iter()
-                .all(|note| (48..=57).contains(&note.value()))
+                .map(|note| note.value())
+                .collect::<Vec<_>>(),
+            vec![43, 43, 50, 50, 52, 52, 50]
         );
     }
 
